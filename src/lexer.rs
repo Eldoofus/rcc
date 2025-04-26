@@ -1,49 +1,52 @@
 use regex::Regex;
 
-#[derive(Debug)]
-#[derive(Clone)]
-#[derive(Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Token<'a> {
     // Literals
-    Constant(i32),      // [0-9]+\b
+    Constant(i32),       // [0-9]+\b
     Identifier(&'a str), // [a-zA-Z_]\w*\b
 
     // Keywords
-    Int,                // int\b
-    Void,               // void\b
-    Return,             // return\b
+    Int,    // int\b
+    Void,   // void\b
+    Return, // return\b
 
     // MonoChar Tokens
-    OpenParenthesis,    // \(
-    CloseParenthesis,   // \)
-    OpenBrace,          // \{
-    CloseBrace,         // \}
-    Semicolon           // ;
+    OpenParenthesis,  // \(
+    CloseParenthesis, // \)
+    OpenBrace,        // \{
+    CloseBrace,       // \}
+    Semicolon,        // ;
+
+    // EOF
+    EndOfFile,
 }
 
 pub fn lex<'a>(input: &'a str) -> Vec<Token<'a>> {
     let lts = [
         (Token::Constant(0), Regex::new(r"^[0-9]+\b").unwrap()),
-        (Token::Identifier(""), Regex::new(r"^[a-zA-Z_]\w*\b").unwrap())
+        (
+            Token::Identifier(""),
+            Regex::new(r"^[a-zA-Z_]\w*\b").unwrap(),
+        ),
     ];
     let kws = [
         (Token::Int, Regex::new(r"^int\b").unwrap()),
         (Token::Void, Regex::new(r"^void\b").unwrap()),
-        (Token::Return, Regex::new(r"^return\b").unwrap())
+        (Token::Return, Regex::new(r"^return\b").unwrap()),
     ];
     let tks = [
         (Token::OpenParenthesis, Regex::new(r"^\(").unwrap()),
         (Token::CloseParenthesis, Regex::new(r"^\)").unwrap()),
         (Token::OpenBrace, Regex::new(r"^\{").unwrap()),
         (Token::CloseBrace, Regex::new(r"^\}").unwrap()),
-        (Token::Semicolon, Regex::new(r"^;").unwrap())
+        (Token::Semicolon, Regex::new(r"^;").unwrap()),
     ];
 
     let mut tokens: Vec<Token> = Vec::new();
     let mut input = input.trim();
 
     while !input.is_empty() {
-
         let mut token: Token = Token::Semicolon;
         let mut maxlen = 0;
 
@@ -52,9 +55,16 @@ pub fn lex<'a>(input: &'a str) -> Vec<Token<'a>> {
                 if tok.len() > maxlen {
                     maxlen = tok.len();
                     token = match lt.0 {
-                        Token::Constant(_) => Token::Constant(tok.as_str().parse().expect("Invalid Integer literal encountered")),
-                        Token::Identifier(_) => kws.iter().find_map(|kw| kw.1.is_match(tok.as_str()).then_some(kw.0)).unwrap_or(Token::Identifier(tok.as_str())),
-                        _ => token
+                        Token::Constant(_) => Token::Constant(
+                            tok.as_str()
+                                .parse()
+                                .expect("Invalid Integer literal encountered"),
+                        ),
+                        Token::Identifier(_) => kws
+                            .iter()
+                            .find_map(|kw| kw.1.is_match(tok.as_str()).then_some(kw.0))
+                            .unwrap_or(Token::Identifier(tok.as_str())),
+                        _ => token,
                     }
                 }
             }
@@ -77,5 +87,6 @@ pub fn lex<'a>(input: &'a str) -> Vec<Token<'a>> {
         input = input[maxlen..].trim()
     }
 
+    tokens.push(Token::EndOfFile);
     return tokens;
 }
