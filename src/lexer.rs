@@ -12,14 +12,17 @@ pub enum Token<'a> {
     Return, // return\b
 
     // MonoChar Tokens
-    OpenParenthesis,  // \(
-    CloseParenthesis, // \)
-    OpenBrace,        // \{
-    CloseBrace,       // \}
-    Semicolon,        // ;
+    OpenParenthesis,    // \(
+    CloseParenthesis,   // \)
+    OpenBrace,          // \{
+    CloseBrace,         // \}
+    Semicolon,          // ;
+    Tilde,              // ~
+    Decrement,          // --
+    Minus,              // -
 
     // EOF
-    EndOfFile,
+    EndOfFile
 }
 
 pub fn lex<'a>(input: &'a str) -> Vec<Token<'a>> {
@@ -41,6 +44,9 @@ pub fn lex<'a>(input: &'a str) -> Vec<Token<'a>> {
         (Token::OpenBrace, Regex::new(r"^\{").unwrap()),
         (Token::CloseBrace, Regex::new(r"^\}").unwrap()),
         (Token::Semicolon, Regex::new(r"^;").unwrap()),
+        (Token::Tilde, Regex::new(r"^~").unwrap()),
+        (Token::Decrement, Regex::new(r"^--").unwrap()),
+        (Token::Minus, Regex::new(r"^-").unwrap())
     ];
 
     let mut tokens: Vec<Token> = Vec::new();

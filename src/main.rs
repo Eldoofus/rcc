@@ -1,6 +1,7 @@
 pub mod lexer;
 pub mod parser;
-pub mod emitter;
+pub mod tacker;
+//pub mod emitter;
 
 use std::{env, fs, path::Path};
 
@@ -33,10 +34,10 @@ fn main() {
             
             let ast = tkstream.parse();
             println!("\n{:?}", &ast);
-            
-            let asm = emitter::convert(ast);
-            println!("\n{:?}", asm);
-            println!("\n{}", asm);
+
+            // let asm = emitter::convert(ast);
+            // println!("\n{:?}", asm);
+            // println!("\n{}", asm);
         } else {
             println!("Invalid file path");
         }

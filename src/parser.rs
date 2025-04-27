@@ -1,8 +1,15 @@
 use crate::lexer::Token;
 
 #[derive(Debug)]
+pub enum UnaryOp {
+    Complement,
+    Negate
+}
+
+#[derive(Debug)]
 pub enum Expression {
     Constant(i32),
+    Unary(UnaryOp, Box<Expression>)
 }
 
 #[derive(Debug)]
@@ -40,11 +47,27 @@ impl<'a> TokenStream<'a> {
         return self;
     }
 
+    pub fn parse_unaryop(&mut self) -> UnaryOp {
+        let (_, t) = self.take();
+        return match t {
+            Token::Tilde => UnaryOp::Complement,
+            Token::Minus => UnaryOp::Negate,
+            _ => panic!("Expected Unary Operator, but found {:?}", t),
+        };
+    }
+
     pub fn parse_expression(&mut self) -> Expression {
         let (_, t) = self.take();
         return match t {
             Token::Constant(c) => Expression::Constant(c),
-            _ => panic!("Expected constant, but found {:?}", t),
+            Token::Tilde => Expression::Unary(UnaryOp::Complement, Box::new(self.parse_expression())),
+            Token::Minus => Expression::Unary(UnaryOp::Negate, Box::new(self.parse_expression())),
+            Token::OpenParenthesis => {
+                let inner = self.parse_expression();
+                self.expect(Token::CloseParenthesis);
+                inner
+            }
+            _ => panic!("Expected expression, but found {:?}", t),
         };
     }
 
