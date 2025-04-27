@@ -1,7 +1,7 @@
 pub mod lexer;
 pub mod parser;
 
-use std::{env, fs, path::Path, process::Command};
+use std::{env, fs, path::Path};
 
 fn main() {
     if cfg!(not(target_os = "linux")) {
@@ -24,43 +24,13 @@ fn main() {
             let tokens: &[lexer::Token] = &lexer::lex(file.as_str());
             let mut tkstream = parser::TokenStream { tokens };
 
-            dbg!(tkstream.parse());
+            println!("{}", file.as_str());
 
-            //preprocessor
-            Command::new("gcc")
-                .arg("-E")
-                .arg("-P")
-                .arg(path)
-                .arg("-o")
-                .arg(path.with_extension("i"))
-                .output()
-                .expect("Failed to execute preprocessor");
-            //compiler
-            Command::new("gcc")
-                .arg("-S")
-                .arg("-O")
-                .arg("-fno-asynchronous-unwind-tables")
-                .arg("-fcf-protection=none")
-                .arg(path.with_extension("i"))
-                .arg("-o")
-                .arg(path.with_extension("s"))
-                .output()
-                .expect("Failed to execute compiler");
-            //assembler
-            Command::new("gcc")
-                .arg("-c")
-                .arg(path.with_extension("s"))
-                .arg("-o")
-                .arg(path.with_extension("o"))
-                .output()
-                .expect("Failed to execute assembler");
-            //linker
-            Command::new("gcc")
-                .arg(path.with_extension("o"))
-                .arg("-o")
-                .arg(path.with_extension(""))
-                .output()
-                .expect("Failed to execute linker");
+            for token in tokens {
+                println!("{:?}", &token);
+            }
+
+            println!("\n{:?}", tkstream.parse());
         } else {
             println!("Invalid file path");
         }
