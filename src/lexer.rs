@@ -3,7 +3,7 @@ use regex::Regex;
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Token<'a> {
     // Literals
-    Constant(i32),       // [0-9]+\b
+    Constant(i64),       // [0-9]+\b
     Identifier(&'a str), // [a-zA-Z_]\w*\b
 
     // Keywords
@@ -12,17 +12,17 @@ pub enum Token<'a> {
     Return, // return\b
 
     // MonoChar Tokens
-    OpenParenthesis,    // \(
-    CloseParenthesis,   // \)
-    OpenBrace,          // \{
-    CloseBrace,         // \}
-    Semicolon,          // ;
-    Tilde,              // ~
-    Decrement,          // --
-    Minus,              // -
+    OpenParenthesis,  // \(
+    CloseParenthesis, // \)
+    OpenBrace,        // \{
+    CloseBrace,       // \}
+    Semicolon,        // ;
+    Tilde,            // ~
+    Decrement,        // --
+    Minus,            // -
 
     // EOF
-    EndOfFile
+    EndOfFile,
 }
 
 pub fn lex<'a>(input: &'a str) -> Vec<Token<'a>> {
@@ -46,7 +46,7 @@ pub fn lex<'a>(input: &'a str) -> Vec<Token<'a>> {
         (Token::Semicolon, Regex::new(r"^;").unwrap()),
         (Token::Tilde, Regex::new(r"^~").unwrap()),
         (Token::Decrement, Regex::new(r"^--").unwrap()),
-        (Token::Minus, Regex::new(r"^-").unwrap())
+        (Token::Minus, Regex::new(r"^-").unwrap()),
     ];
 
     let mut tokens: Vec<Token> = Vec::new();

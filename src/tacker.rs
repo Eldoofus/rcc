@@ -3,78 +3,83 @@ use crate::parser;
 #[derive(Debug, Clone, Copy)]
 pub enum UnaryOp {
     Complement,
-    Negate
+    Negate,
 }
 
 #[derive(Debug, Clone, Copy)]
-pub enum Val<'b> {
-    Constant(i32),
-    Var(&'b str)
+pub enum Val<'a> {
+    Constant(i64),
+    Temp(u32),
+    Local(&'a str),
 }
 
 #[derive(Debug, Clone, Copy)]
-pub enum Instruction<'b> {
-    Return(Val<'b>),
+pub enum Instruction<'a> {
+    Return(Val<'a>),
     Unary {
         op: UnaryOp,
-        src: Val<'b>,
-        dst: Val<'b>
-    }
+        src: Val<'a>,
+        dst: Val<'a>,
+    },
 }
 
 #[derive(Debug)]
-pub enum FnDef<'a, 'b> {
+pub enum FnDef<'a> {
     Function {
         name: &'a str,
-        instructions: Vec<Instruction<'b>>
-    }
+        instructions: Vec<Instruction<'a>>,
+    },
 }
 
 #[derive(Debug)]
-pub enum PgDef<'a, 'b> {
-    Program(FnDef<'a, 'b>)
+pub enum PgDef<'a> {
+    Program(FnDef<'a>),
 }
 
 pub struct Tacker {
-    pub tmps: Vec<String>,
+    pub tmpc: u32,
 }
 
 impl Tacker {
-    pub fn mk_tmp(&mut self) -> &str {
-        self.tmps.push(String::from("tmp.") + self.tmps.len().to_string().as_str());
-        return &self.tmps.last().unwrap();
+    pub fn convert_expression<'a>(
+        &mut self,
+        e: parser::Expression,
+        instructions: &mut Vec<Instruction<'a>>,
+    ) -> (&mut Self, Val<'a>) {
+        match e {
+            parser::Expression::Constant(i) => (self, Val::Constant(i)),
+            parser::Expression::Unary(op, inner) => {
+                let (tacker, src) = self.convert_expression(*inner, instructions);
+                let dst = Val::Temp(tacker.tmpc);
+                tacker.tmpc += 1;
+                instructions.push(Instruction::Unary {
+                    op: match op {
+                        parser::UnaryOp::Complement => UnaryOp::Complement,
+                        parser::UnaryOp::Negate => UnaryOp::Negate,
+                    },
+                    src,
+                    dst,
+                });
+                (tacker, dst)
+            }
+        }
     }
-    
-    // pub fn convert_expression<'a, F>(&'a mut self, e: parser::Expression, instructions: &mut Vec<Instruction<'a>>, mut f: F) -> Val<'a>
-    // where F: FnMut(&'a mut Self, &mut Vec<Instruction<'a>>, Val<'a>) -> Val<'a> {
-    //     let t = match e {
-    //         parser::Expression::Constant(i) => Val::Constant(i),
-    //         parser::Expression::Unary(op, inner) => {
-    //             self.convert_expression(*inner, instructions, |tacker, instructions, src| {
-    //                 let dst = Val::Var(tacker.mk_tmp());
-    //                 instructions.push(Instruction::Unary { op: match op {
-    //                     parser::UnaryOp::Complement => UnaryOp::Complement,
-    //                     parser::UnaryOp::Negate => UnaryOp::Negate
-    //                 }, src, dst });
-    //                 dst
-    //             })
-    //         }
-    //     };
-    //     return f(self, instructions, t);
-    // }
-    
-    // pub fn convert_expression<'a>(&'a mut self, e: parser::Expression, instructions: &mut Vec<Instruction<'a>>) -> Val<'a> {
-    //     match e {
-    //         parser::Expression::Constant(i) => (self, Val::Constant(i)),
-    //         parser::Expression::Unary(op, inner) => {
-    //             let src = self.convert_expression(*inner, instructions);
-    //             let dst = Val::Var(tacker.mk_tmp());
-    //             instructions.push(Instruction::Unary { op: match op {
-    //                 parser::UnaryOp::Complement => UnaryOp::Complement,
-    //                 parser::UnaryOp::Negate => UnaryOp::Negate
-    //             }, src, dst });
-    //             (tacker, dst)
-    //         }
-    //     }
-    // }
+
+    pub fn convert_statement(&mut self, s: parser::Statement, instructions: &mut Vec<Instruction>) {
+        let parser::Statement::Return(e) = s;
+        let (_, r) = self.convert_expression(e, instructions);
+        instructions.push(Instruction::Return(r));
+    }
+
+    pub fn convert_function<'a>(&mut self, f: parser::FnDef<'a>) -> FnDef<'a> {
+        let mut instructions: Vec<Instruction> = Vec::new();
+        let parser::FnDef::Function { name, body } = f;
+        self.convert_statement(body, &mut instructions);
+        return FnDef::Function { name, instructions };
+    }
+
+    pub fn convert<'a>(&mut self, p: parser::PgDef<'a>) -> PgDef<'a> {
+        let parser::PgDef::Program(f) = p;
+        return PgDef::Program(self.convert_function(f));
+    }
 }

@@ -1,7 +1,7 @@
+pub mod emitter;
 pub mod lexer;
 pub mod parser;
 pub mod tacker;
-//pub mod emitter;
 
 use std::{env, fs, path::Path};
 
@@ -28,16 +28,19 @@ fn main() {
 
             println!("{}", file.as_str());
 
-            for token in tokens {
-                println!("{:?}", &token);
-            }
-            
+            // for token in tokens {
+            //     println!("{:?}", &token);
+            // }
+
             let ast = tkstream.parse();
             println!("\n{:?}", &ast);
 
-            // let asm = emitter::convert(ast);
-            // println!("\n{:?}", asm);
-            // println!("\n{}", asm);
+            let tacky = tacker::Tacker { tmpc: 0 }.convert(ast);
+            println!("\n{:?}", &tacky);
+
+            let asm = emitter::convert(tacky);
+            println!("\n{:?}", asm);
+            println!("\n{}", asm);
         } else {
             println!("Invalid file path");
         }

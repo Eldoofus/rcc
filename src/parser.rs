@@ -3,13 +3,13 @@ use crate::lexer::Token;
 #[derive(Debug)]
 pub enum UnaryOp {
     Complement,
-    Negate
+    Negate,
 }
 
 #[derive(Debug)]
 pub enum Expression {
-    Constant(i32),
-    Unary(UnaryOp, Box<Expression>)
+    Constant(i64),
+    Unary(UnaryOp, Box<Expression>),
 }
 
 #[derive(Debug)]
@@ -60,7 +60,9 @@ impl<'a> TokenStream<'a> {
         let (_, t) = self.take();
         return match t {
             Token::Constant(c) => Expression::Constant(c),
-            Token::Tilde => Expression::Unary(UnaryOp::Complement, Box::new(self.parse_expression())),
+            Token::Tilde => {
+                Expression::Unary(UnaryOp::Complement, Box::new(self.parse_expression()))
+            }
             Token::Minus => Expression::Unary(UnaryOp::Negate, Box::new(self.parse_expression())),
             Token::OpenParenthesis => {
                 let inner = self.parse_expression();
