@@ -12,7 +12,12 @@ pub enum BinaryOp {
     Subtract,
     Multiply,
     Divide,
-    Modulo
+    Modulo,
+    BitwiseAnd,
+    BitwiseOr,
+    BitwiseXor,
+    BitshiftLeft,
+    BitshiftRight,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -34,8 +39,8 @@ pub enum Instruction<'a> {
         op: BinaryOp,
         src1: Val<'a>,
         src2: Val<'a>,
-        dst: Val<'a>
-    }
+        dst: Val<'a>,
+    },
 }
 
 #[derive(Debug)]
@@ -76,19 +81,29 @@ impl Tacker {
                     dst,
                 });
                 (tacker, dst)
-            },
+            }
             parser::Expression::Binary(op, e1, e2) => {
                 let (tacker, src1) = self.convert_expression(*e1, instructions);
                 let (tacker, src2) = tacker.convert_expression(*e2, instructions);
                 let dst = Val::Temp(tacker.tmpc);
                 tacker.tmpc += 1;
-                instructions.push(Instruction::Binary { op: match op {
+                instructions.push(Instruction::Binary {
+                    op: match op {
                         parser::BinaryOp::Add => BinaryOp::Add,
                         parser::BinaryOp::Subtract => BinaryOp::Subtract,
                         parser::BinaryOp::Multiply => BinaryOp::Multiply,
                         parser::BinaryOp::Divide => BinaryOp::Divide,
-                        parser::BinaryOp::Modulo => BinaryOp::Modulo
-                }, src1, src2, dst });
+                        parser::BinaryOp::Modulo => BinaryOp::Modulo,
+                        parser::BinaryOp::BitwiseAnd => BinaryOp::BitwiseAnd,
+                        parser::BinaryOp::BitwiseOr => BinaryOp::BitwiseOr,
+                        parser::BinaryOp::BitwiseXor => BinaryOp::BitwiseXor,
+                        parser::BinaryOp::BitshiftLeft => BinaryOp::BitshiftLeft,
+                        parser::BinaryOp::BitshiftRight => BinaryOp::BitshiftRight,
+                    },
+                    src1,
+                    src2,
+                    dst,
+                });
                 (tacker, dst)
             }
         }

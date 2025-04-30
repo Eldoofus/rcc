@@ -4,6 +4,7 @@ use std::fmt;
 #[derive(Debug, Clone, Copy)]
 pub enum Register {
     RAX,
+    RCX,
     RDX,
     R10,
     R11,
@@ -21,6 +22,8 @@ pub enum Operand {
 pub enum UnaryOp {
     Neg,
     Not,
+    Shl,
+    Shr,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -28,6 +31,9 @@ pub enum BinaryOp {
     Add,
     Sub,
     Mul,
+    And,
+    Or,
+    Xor,
 }
 
 #[derive(Debug)]
@@ -58,7 +64,7 @@ pub fn convert_val(v: tacker::Val) -> Operand {
     return match v {
         tacker::Val::Constant(i) => Operand::Imm(i),
         tacker::Val::Temp(id) => Operand::Pseudo(id),
-        _ => unreachable!()
+        _ => unreachable!(),
     };
 }
 
@@ -92,7 +98,7 @@ pub fn convert_instructions(is: Vec<tacker::Instruction>) -> Vec<Instruction> {
                 src2,
                 dst,
             } => match op {
-                o @ (tacker::BinaryOp::Divide | tacker::BinaryOp::Modulo) => {
+                tacker::BinaryOp::Divide | tacker::BinaryOp::Modulo => {
                     instructions.push(Instruction::Mov {
                         src: convert_val(src1),
                         dst: Operand::Register(Register::RAX),
@@ -100,13 +106,31 @@ pub fn convert_instructions(is: Vec<tacker::Instruction>) -> Vec<Instruction> {
                     instructions.push(Instruction::Cqo);
                     instructions.push(Instruction::Div(convert_val(src2)));
                     instructions.push(Instruction::Mov {
-                        src: Operand::Register(match o {
+                        src: Operand::Register(match op {
                             tacker::BinaryOp::Divide => Register::RAX,
                             tacker::BinaryOp::Modulo => Register::RDX,
-                            _ => unreachable!()
+                            _ => unreachable!(),
                         }),
                         dst: convert_val(dst),
                     })
+                }
+                tacker::BinaryOp::BitshiftLeft | tacker::BinaryOp::BitshiftRight => {
+                    instructions.push(Instruction::Mov {
+                        src: convert_val(src1),
+                        dst: convert_val(dst),
+                    });
+                    instructions.push(Instruction::Mov {
+                        src: convert_val(src2),
+                        dst: Operand::Register(Register::RCX),
+                    });
+                    instructions.push(Instruction::Unary(
+                        match op {
+                            tacker::BinaryOp::BitshiftLeft => UnaryOp::Shl,
+                            tacker::BinaryOp::BitshiftRight => UnaryOp::Shr,
+                            _ => unreachable!(),
+                        },
+                        convert_val(dst),
+                    ));
                 }
                 _ => {
                     instructions.push(Instruction::Mov {
@@ -118,7 +142,10 @@ pub fn convert_instructions(is: Vec<tacker::Instruction>) -> Vec<Instruction> {
                             tacker::BinaryOp::Add => BinaryOp::Add,
                             tacker::BinaryOp::Subtract => BinaryOp::Sub,
                             tacker::BinaryOp::Multiply => BinaryOp::Mul,
-                            _ => unreachable!()
+                            tacker::BinaryOp::BitwiseAnd => BinaryOp::And,
+                            tacker::BinaryOp::BitwiseOr => BinaryOp::Or,
+                            tacker::BinaryOp::BitwiseXor => BinaryOp::Xor,
+                            _ => unreachable!(),
                         },
                         convert_val(src2),
                         convert_val(dst),
@@ -130,18 +157,19 @@ pub fn convert_instructions(is: Vec<tacker::Instruction>) -> Vec<Instruction> {
 
     let is = instructions;
     let mut instructions: Vec<Instruction> = Vec::new();
-    let mut offset = 0;
-    let mut last_id: i32 = -1;
+    //let mut offset = 0;
+    let mut last_id: u32 = 0;
 
     let mut replace = |o| match o {
         Operand::Pseudo(id) => {
-            offset -= if id as i32 == last_id {
-                0
-            } else {
-                last_id = id as i32;
-                8
-            };
-            Operand::Stack(offset)
+            // offset -= if id as i32 <= last_id {
+            //     0
+            // } else {
+            //     last_id = id as i32;
+            //     8
+            // };
+            last_id = std::cmp::max(id, last_id);
+            Operand::Stack(id as i32 * -8)
         }
         _ => o,
     };
@@ -153,12 +181,16 @@ pub fn convert_instructions(is: Vec<tacker::Instruction>) -> Vec<Instruction> {
                 dst: replace(dst),
             },
             Instruction::Unary(op, dst) => Instruction::Unary(op, replace(dst)),
+            Instruction::Binary(op, src, dst) => {
+                Instruction::Binary(op, replace(src), replace(dst))
+            }
+            Instruction::Div(div) => Instruction::Div(replace(div)),
             _ => i,
         });
     }
 
     let is = instructions;
-    let mut instructions: Vec<Instruction> = vec![Instruction::AllocateStack(offset)];
+    let mut instructions: Vec<Instruction> = vec![Instruction::AllocateStack((last_id * 8) as i32)];
 
     for i in is {
         if let Instruction::Mov { src, dst } = i
@@ -180,7 +212,11 @@ pub fn convert_instructions(is: Vec<tacker::Instruction>) -> Vec<Instruction> {
                 src: dst,
                 dst: Operand::Register(Register::R11),
             });
-            instructions.push(Instruction::Binary(BinaryOp::Mul, src, Operand::Register(Register::R11)));
+            instructions.push(Instruction::Binary(
+                BinaryOp::Mul,
+                src,
+                Operand::Register(Register::R11),
+            ));
             instructions.push(Instruction::Mov {
                 src: Operand::Register(Register::R11),
                 dst: dst,
@@ -193,7 +229,11 @@ pub fn convert_instructions(is: Vec<tacker::Instruction>) -> Vec<Instruction> {
                 src,
                 dst: Operand::Register(Register::R10),
             });
-            instructions.push(Instruction::Binary(op, Operand::Register(Register::R10), dst));
+            instructions.push(Instruction::Binary(
+                op,
+                Operand::Register(Register::R10),
+                dst,
+            ));
         } else if let Instruction::Div(div) = i
             && let Operand::Imm(_) = div
         {
@@ -227,6 +267,7 @@ impl fmt::Display for Register {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             Register::RAX => write!(f, "%rax"),
+            Register::RCX => write!(f, "%rcx"),
             Register::RDX => write!(f, "%rdx"),
             Register::R10 => write!(f, "%r10"),
             Register::R11 => write!(f, "%r11"),
@@ -240,7 +281,7 @@ impl fmt::Display for Operand {
             Operand::Imm(i) => write!(f, "${}", i),
             Operand::Register(r) => write!(f, "{}", r),
             Operand::Stack(s) => write!(f, "{}(%rbp)", s),
-            _ => write!(f, ""),
+            _ => panic!("Found {:?}", self),
         }
     }
 }
@@ -250,6 +291,8 @@ impl fmt::Display for UnaryOp {
         match self {
             UnaryOp::Neg => write!(f, "negq"),
             UnaryOp::Not => write!(f, "notq"),
+            UnaryOp::Shl => write!(f, "salq"),
+            UnaryOp::Shr => write!(f, "sarq"),
         }
     }
 }
@@ -260,6 +303,9 @@ impl fmt::Display for BinaryOp {
             BinaryOp::Add => write!(f, "addq"),
             BinaryOp::Sub => write!(f, "subq"),
             BinaryOp::Mul => write!(f, "imulq"),
+            BinaryOp::And => write!(f, "andq"),
+            BinaryOp::Or => write!(f, "orq"),
+            BinaryOp::Xor => write!(f, "xorq"),
         }
     }
 }
@@ -272,7 +318,7 @@ impl fmt::Display for Instruction {
             Instruction::Binary(op, src, dst) => write!(f, "{}\t{}, {}", op, src, dst),
             Instruction::Div(div) => write!(f, "idivq\t{}", div),
             Instruction::Cqo => write!(f, "cqo"),
-            Instruction::AllocateStack(offset) => write!(f, "subq\t${}, %rsp", -offset),
+            Instruction::AllocateStack(offset) => write!(f, "subq\t${}, %rsp", offset),
             Instruction::Ret => write!(f, "movq\t%rbp, %rsp\n\tpopq\t%rbp\n\tretq"),
         }
     }
@@ -296,6 +342,6 @@ impl<'a> fmt::Display for FnDef<'a> {
 impl<'a> fmt::Display for PgDef<'a> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let PgDef::Program(func) = self;
-        write!(f, "{}\t.section\t.note.GNU-stack,\"\",@progbits", func)
+        writeln!(f, "{}\t.section\t.note.GNU-stack,\"\",@progbits", func)
     }
 }

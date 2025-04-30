@@ -12,18 +12,24 @@ pub enum Token<'a> {
     Return, // return\b
 
     // MonoChar & DuoChar Tokens
-    OpenParenthesis,  // \(
-    CloseParenthesis, // \)
-    OpenBrace,        // \{
-    CloseBrace,       // \}
-    Semicolon,        // ;
-    Tilde,            // ~
-    Plus,             // \+
-    Decrement,        // --
-    Minus,            // -
-    Star,             // \*
-    Slash,            // /
-    Percent,          // %
+    OpenParenthesis,    // \(
+    CloseParenthesis,   // \)
+    OpenBrace,          // \{
+    CloseBrace,         // \}
+    Semicolon,          // ;
+    Tilde,              // ~
+    DoublePlus,         // \+\+
+    Plus,               // \+
+    DoubleMinus,        // --
+    Minus,              // -
+    Star,               // \*
+    Slash,              // /
+    Percent,            // %
+    Ampersand,          // &
+    Pipe,               // \|
+    Carat,              // \^
+    DoubleLeftChevron,  // <<
+    DoubleRightChevron, // >>
 
     // EOF
     EndOfFile,
@@ -49,12 +55,18 @@ pub fn lex<'a>(input: &'a str) -> Vec<Token<'a>> {
         (Token::CloseBrace, Regex::new(r"^\}").unwrap()),
         (Token::Semicolon, Regex::new(r"^;").unwrap()),
         (Token::Tilde, Regex::new(r"^~").unwrap()),
+        (Token::DoublePlus, Regex::new(r"^\+\+").unwrap()),
         (Token::Plus, Regex::new(r"^\+").unwrap()),
-        (Token::Decrement, Regex::new(r"^--").unwrap()),
+        (Token::DoubleMinus, Regex::new(r"^--").unwrap()),
         (Token::Minus, Regex::new(r"^-").unwrap()),
         (Token::Star, Regex::new(r"^\*").unwrap()),
         (Token::Slash, Regex::new(r"^/").unwrap()),
         (Token::Percent, Regex::new(r"^%").unwrap()),
+        (Token::Ampersand, Regex::new(r"&").unwrap()),
+        (Token::Pipe, Regex::new(r"\|").unwrap()),
+        (Token::Carat, Regex::new(r"\^").unwrap()),
+        (Token::DoubleLeftChevron, Regex::new(r"<<").unwrap()),
+        (Token::DoubleRightChevron, Regex::new(r">>").unwrap()),
     ];
 
     let mut tokens: Vec<Token> = Vec::new();

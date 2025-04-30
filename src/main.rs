@@ -35,11 +35,11 @@ fn main() {
             let ast = tkstream.parse();
             println!("\n{:?}", &ast);
 
-            let tacky = tacker::Tacker { tmpc: 0 }.convert(ast);
-            println!("\n{:?}", &tacky);
+            let tacky = tacker::Tacker { tmpc: 1 }.convert(ast);
+            //println!("\n{:?}", &tacky);
 
             let asm = emitter::convert(tacky);
-            println!("\n{:?}", asm);
+            //println!("\n{:?}", asm);
             println!("\n{}", asm);
         } else {
             println!("Invalid file path");

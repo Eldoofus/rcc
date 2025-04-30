@@ -12,14 +12,19 @@ pub enum BinaryOp {
     Subtract,
     Multiply,
     Divide,
-    Modulo
+    Modulo,
+    BitwiseAnd,
+    BitwiseOr,
+    BitwiseXor,
+    BitshiftLeft,
+    BitshiftRight,
 }
 
 #[derive(Debug)]
 pub enum Expression {
     Constant(i64),
     Unary(UnaryOp, Box<Expression>),
-    Binary(BinaryOp, Box<Expression>, Box<Expression>)
+    Binary(BinaryOp, Box<Expression>, Box<Expression>),
 }
 
 #[derive(Debug)]
@@ -56,21 +61,39 @@ pub fn parse_binaryop(t: Token) -> BinaryOp {
         Token::Star => BinaryOp::Multiply,
         Token::Slash => BinaryOp::Divide,
         Token::Percent => BinaryOp::Modulo,
+        Token::Ampersand => BinaryOp::BitwiseAnd,
+        Token::Pipe => BinaryOp::BitwiseOr,
+        Token::Carat => BinaryOp::BitwiseXor,
+        Token::DoubleLeftChevron => BinaryOp::BitshiftLeft,
+        Token::DoubleRightChevron => BinaryOp::BitshiftRight,
         _ => panic!("Expected Binary Operator, but found {:?}", t),
     };
 }
 
 pub fn is_binaryop(t: Token) -> bool {
     return match t {
-        Token::Plus | Token::Minus | Token::Star | Token::Slash | Token::Percent => true,
+        Token::Plus
+        | Token::Minus
+        | Token::Star
+        | Token::Slash
+        | Token::Percent
+        | Token::Ampersand
+        | Token::Pipe
+        | Token::Carat
+        | Token::DoubleLeftChevron
+        | Token::DoubleRightChevron => true,
         _ => false,
-    }
+    };
 }
 
 pub fn precedence(op: BinaryOp) -> i32 {
     return match op {
-        BinaryOp::Multiply | BinaryOp::Divide | BinaryOp::Modulo => 2,
-        BinaryOp::Add | BinaryOp::Subtract => 1
+        BinaryOp::Multiply | BinaryOp::Divide | BinaryOp::Modulo => 13,
+        BinaryOp::Add | BinaryOp::Subtract => 12,
+        BinaryOp::BitshiftLeft | BinaryOp::BitshiftRight => 11,
+        BinaryOp::BitwiseAnd => 8,
+        BinaryOp::BitwiseXor => 7,
+        BinaryOp::BitwiseOr => 6,
     };
 }
 
@@ -94,7 +117,9 @@ impl<'a> TokenStream<'a> {
         let (_, t) = self.take();
         return match t {
             Token::Constant(c) => Expression::Constant(c),
-            Token::Tilde | Token::Minus => Expression::Unary(parse_unaryop(t), Box::new(self.parse_factor())),
+            Token::Tilde | Token::Minus => {
+                Expression::Unary(parse_unaryop(t), Box::new(self.parse_factor()))
+            }
             Token::OpenParenthesis => {
                 let inner = self.parse_expression(0);
                 self.expect(Token::CloseParenthesis);
@@ -111,7 +136,11 @@ impl<'a> TokenStream<'a> {
         while is_binaryop(t) && precedence(parse_binaryop(t)) >= min_prec {
             (tokens, t) = tokens.take();
             let op = parse_binaryop(t);
-            left  = Expression::Binary(op, Box::new(left), Box::new(tokens.parse_expression(precedence(op) + 1)));
+            left = Expression::Binary(
+                op,
+                Box::new(left),
+                Box::new(tokens.parse_expression(precedence(op) + 1)),
+            );
             t = tokens.tokens[0];
         }
         return left;
