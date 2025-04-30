@@ -6,10 +6,20 @@ pub enum UnaryOp {
     Negate,
 }
 
+#[derive(Debug, Clone, Copy)]
+pub enum BinaryOp {
+    Add,
+    Subtract,
+    Multiply,
+    Divide,
+    Modulo
+}
+
 #[derive(Debug)]
 pub enum Expression {
     Constant(i64),
     Unary(UnaryOp, Box<Expression>),
+    Binary(BinaryOp, Box<Expression>, Box<Expression>)
 }
 
 #[derive(Debug)]
@@ -31,6 +41,39 @@ pub struct TokenStream<'a> {
     pub tokens: &'a [Token<'a>],
 }
 
+pub fn parse_unaryop(t: Token) -> UnaryOp {
+    return match t {
+        Token::Tilde => UnaryOp::Complement,
+        Token::Minus => UnaryOp::Negate,
+        _ => panic!("Expected Unary Operator, but found {:?}", t),
+    };
+}
+
+pub fn parse_binaryop(t: Token) -> BinaryOp {
+    return match t {
+        Token::Plus => BinaryOp::Add,
+        Token::Minus => BinaryOp::Subtract,
+        Token::Star => BinaryOp::Multiply,
+        Token::Slash => BinaryOp::Divide,
+        Token::Percent => BinaryOp::Modulo,
+        _ => panic!("Expected Binary Operator, but found {:?}", t),
+    };
+}
+
+pub fn is_binaryop(t: Token) -> bool {
+    return match t {
+        Token::Plus | Token::Minus | Token::Star | Token::Slash | Token::Percent => true,
+        _ => false,
+    }
+}
+
+pub fn precedence(op: BinaryOp) -> i32 {
+    return match op {
+        BinaryOp::Multiply | BinaryOp::Divide | BinaryOp::Modulo => 2,
+        BinaryOp::Add | BinaryOp::Subtract => 1
+    };
+}
+
 impl<'a> TokenStream<'a> {
     pub fn take(&mut self) -> (&mut Self, Token) {
         let t = self.tokens[0];
@@ -47,25 +90,13 @@ impl<'a> TokenStream<'a> {
         return self;
     }
 
-    pub fn parse_unaryop(&mut self) -> UnaryOp {
-        let (_, t) = self.take();
-        return match t {
-            Token::Tilde => UnaryOp::Complement,
-            Token::Minus => UnaryOp::Negate,
-            _ => panic!("Expected Unary Operator, but found {:?}", t),
-        };
-    }
-
-    pub fn parse_expression(&mut self) -> Expression {
+    pub fn parse_factor(&mut self) -> Expression {
         let (_, t) = self.take();
         return match t {
             Token::Constant(c) => Expression::Constant(c),
-            Token::Tilde => {
-                Expression::Unary(UnaryOp::Complement, Box::new(self.parse_expression()))
-            }
-            Token::Minus => Expression::Unary(UnaryOp::Negate, Box::new(self.parse_expression())),
+            Token::Tilde | Token::Minus => Expression::Unary(parse_unaryop(t), Box::new(self.parse_factor())),
             Token::OpenParenthesis => {
-                let inner = self.parse_expression();
+                let inner = self.parse_expression(0);
                 self.expect(Token::CloseParenthesis);
                 inner
             }
@@ -73,8 +104,21 @@ impl<'a> TokenStream<'a> {
         };
     }
 
+    pub fn parse_expression(&mut self, min_prec: i32) -> Expression {
+        let mut left = self.parse_factor();
+        let mut t = self.tokens[0];
+        let mut tokens = self;
+        while is_binaryop(t) && precedence(parse_binaryop(t)) >= min_prec {
+            (tokens, t) = tokens.take();
+            let op = parse_binaryop(t);
+            left  = Expression::Binary(op, Box::new(left), Box::new(tokens.parse_expression(precedence(op) + 1)));
+            t = tokens.tokens[0];
+        }
+        return left;
+    }
+
     pub fn parse_statement(&mut self) -> Statement {
-        let e = self.expect(Token::Return).parse_expression();
+        let e = self.expect(Token::Return).parse_expression(0);
         self.expect(Token::Semicolon);
         return Statement::Return(e);
     }
