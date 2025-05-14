@@ -2,11 +2,12 @@ use crate::lexer::Token;
 
 #[derive(Debug)]
 pub enum UnaryOp {
-    Complement,
-    Negate,
+    BitwiseNot,
+    Negative,
+    Negation,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum BinaryOp {
     Add,
     Subtract,
@@ -18,6 +19,14 @@ pub enum BinaryOp {
     BitwiseXor,
     BitshiftLeft,
     BitshiftRight,
+    Conjunction,
+    Disjunction,
+    Equal,
+    NotEqual,
+    Less,
+    LessEqual,
+    Greater,
+    GreaterEqual,
 }
 
 #[derive(Debug)]
@@ -48,8 +57,9 @@ pub struct TokenStream<'a> {
 
 pub fn parse_unaryop(t: Token) -> UnaryOp {
     return match t {
-        Token::Tilde => UnaryOp::Complement,
-        Token::Minus => UnaryOp::Negate,
+        Token::Tilde => UnaryOp::BitwiseNot,
+        Token::Minus => UnaryOp::Negative,
+        Token::Bang => UnaryOp::Negation,
         _ => panic!("Expected Unary Operator, but found {:?}", t),
     };
 }
@@ -66,6 +76,14 @@ pub fn parse_binaryop(t: Token) -> BinaryOp {
         Token::Carat => BinaryOp::BitwiseXor,
         Token::DoubleLeftChevron => BinaryOp::BitshiftLeft,
         Token::DoubleRightChevron => BinaryOp::BitshiftRight,
+        Token::DoubleAmpersand => BinaryOp::Conjunction,
+        Token::DoublePipe => BinaryOp::Disjunction,
+        Token::DoubleEqual => BinaryOp::Equal,
+        Token::BangEqual => BinaryOp::NotEqual,
+        Token::LeftChevron => BinaryOp::Less,
+        Token::LeftChevronEqual => BinaryOp::LessEqual,
+        Token::RightChevron => BinaryOp::Greater,
+        Token::RightChevronEqual => BinaryOp::GreaterEqual,
         _ => panic!("Expected Binary Operator, but found {:?}", t),
     };
 }
@@ -81,7 +99,15 @@ pub fn is_binaryop(t: Token) -> bool {
         | Token::Pipe
         | Token::Carat
         | Token::DoubleLeftChevron
-        | Token::DoubleRightChevron => true,
+        | Token::DoubleRightChevron
+        | Token::DoubleAmpersand
+        | Token::DoublePipe
+        | Token::DoubleEqual
+        | Token::BangEqual
+        | Token::LeftChevron
+        | Token::LeftChevronEqual
+        | Token::RightChevron
+        | Token::RightChevronEqual => true,
         _ => false,
     };
 }
@@ -91,9 +117,13 @@ pub fn precedence(op: BinaryOp) -> i32 {
         BinaryOp::Multiply | BinaryOp::Divide | BinaryOp::Modulo => 13,
         BinaryOp::Add | BinaryOp::Subtract => 12,
         BinaryOp::BitshiftLeft | BinaryOp::BitshiftRight => 11,
+        BinaryOp::Less | BinaryOp::LessEqual | BinaryOp::Greater | BinaryOp::GreaterEqual => 10,
+        BinaryOp::Equal | BinaryOp::NotEqual => 9,
         BinaryOp::BitwiseAnd => 8,
         BinaryOp::BitwiseXor => 7,
         BinaryOp::BitwiseOr => 6,
+        BinaryOp::Conjunction => 5,
+        BinaryOp::Disjunction => 4,
     };
 }
 

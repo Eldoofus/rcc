@@ -3,7 +3,8 @@ pub mod lexer;
 pub mod parser;
 pub mod tacker;
 
-use std::{env, fs, path::Path};
+use std::io::Write;
+use std::{env, fs, path::Path, process::Command};
 
 fn main() {
     if cfg!(not(target_os = "linux")) {
@@ -35,12 +36,28 @@ fn main() {
             let ast = tkstream.parse();
             println!("\n{:?}", &ast);
 
-            let tacky = tacker::Tacker { tmpc: 1 }.convert(ast);
-            //println!("\n{:?}", &tacky);
+            let tacky = tacker::Tacker { tmpc: 1, lblc: 1 }.convert(ast);
+            // println!("\n{:?}", &tacky);
 
             let asm = emitter::convert(tacky);
-            //println!("\n{:?}", asm);
-            println!("\n{}", asm);
+            //println!("\n{:?}", &asm);
+            println!("\n{}", &asm);
+
+            let mut file =
+                fs::File::create(path.with_extension("s")).expect("Could not create output file");
+            writeln!(&mut file, "{}", &asm).unwrap();
+
+            Command::new("gcc")
+                .arg(path.with_extension("s"))
+                .arg("-o")
+                .arg(path.with_extension(""))
+                .output()
+                .expect("Failed to execute gcc");
+
+            println!(
+                "Program returned: {}",
+                Command::new(path.with_extension("")).status().unwrap()
+            );
         } else {
             println!("Invalid file path");
         }

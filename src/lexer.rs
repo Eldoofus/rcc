@@ -25,11 +25,20 @@ pub enum Token<'a> {
     Star,               // \*
     Slash,              // /
     Percent,            // %
+    Bang,               // !
+    DoubleAmpersand,    // &&
     Ampersand,          // &
+    DoublePipe,         // \|\|
     Pipe,               // \|
     Carat,              // \^
     DoubleLeftChevron,  // <<
+    LeftChevron,        // <
     DoubleRightChevron, // >>
+    RightChevron,       // >
+    DoubleEqual,        // ==
+    BangEqual,          // !=
+    LeftChevronEqual,   // <=
+    RightChevronEqual,  // >=
 
     // EOF
     EndOfFile,
@@ -62,11 +71,20 @@ pub fn lex<'a>(input: &'a str) -> Vec<Token<'a>> {
         (Token::Star, Regex::new(r"^\*").unwrap()),
         (Token::Slash, Regex::new(r"^/").unwrap()),
         (Token::Percent, Regex::new(r"^%").unwrap()),
-        (Token::Ampersand, Regex::new(r"&").unwrap()),
-        (Token::Pipe, Regex::new(r"\|").unwrap()),
-        (Token::Carat, Regex::new(r"\^").unwrap()),
-        (Token::DoubleLeftChevron, Regex::new(r"<<").unwrap()),
-        (Token::DoubleRightChevron, Regex::new(r">>").unwrap()),
+        (Token::Bang, Regex::new(r"^!").unwrap()),
+        (Token::DoubleAmpersand, Regex::new(r"^&&").unwrap()),
+        (Token::Ampersand, Regex::new(r"^&").unwrap()),
+        (Token::DoublePipe, Regex::new(r"^\|\|").unwrap()),
+        (Token::Pipe, Regex::new(r"^\|").unwrap()),
+        (Token::Carat, Regex::new(r"^\^").unwrap()),
+        (Token::DoubleLeftChevron, Regex::new(r"^<<").unwrap()),
+        (Token::LeftChevron, Regex::new(r"^<").unwrap()),
+        (Token::DoubleRightChevron, Regex::new(r"^>>").unwrap()),
+        (Token::RightChevron, Regex::new(r"^>").unwrap()),
+        (Token::DoubleEqual, Regex::new(r"^==").unwrap()),
+        (Token::BangEqual, Regex::new(r"^!=").unwrap()),
+        (Token::LeftChevronEqual, Regex::new(r"^<=").unwrap()),
+        (Token::RightChevronEqual, Regex::new(r"^>=").unwrap()),
     ];
 
     let mut tokens: Vec<Token> = Vec::new();
