@@ -32,6 +32,10 @@ pub enum Operand {
 pub enum UnaryOp {
     Neg,
     Not,
+}
+
+#[derive(Debug)]
+pub enum ShiftOp {
     Shl,
     Shr,
 }
@@ -51,6 +55,7 @@ pub enum BinaryOp {
 pub enum Instruction {
     Mov { src: Operand, dst: Operand },
     Unary(UnaryOp, Operand),
+    Shift(ShiftOp, Operand, Operand),
     Binary(BinaryOp, Operand, Operand),
     Div(Operand),
     Cqo,
@@ -151,16 +156,13 @@ pub fn convert_instructions(is: Vec<tacker::Instruction>) -> Vec<Instruction> {
                         src: convert_val(src1),
                         dst: convert_val(dst),
                     });
-                    instructions.push(Instruction::Mov {
-                        src: convert_val(src2),
-                        dst: Operand::Register(Register::RCX),
-                    });
-                    instructions.push(Instruction::Unary(
+                    instructions.push(Instruction::Shift(
                         match op {
-                            tacker::BinaryOp::BitshiftLeft => UnaryOp::Shl,
-                            tacker::BinaryOp::BitshiftRight => UnaryOp::Shr,
+                            tacker::BinaryOp::BitshiftLeft => ShiftOp::Shl,
+                            tacker::BinaryOp::BitshiftRight => ShiftOp::Shr,
                             _ => unreachable!(),
                         },
+                        convert_val(src2),
                         convert_val(dst),
                     ));
                 }
@@ -263,6 +265,7 @@ pub fn convert_instructions(is: Vec<tacker::Instruction>) -> Vec<Instruction> {
                 dst: replace(dst),
             },
             Instruction::Unary(op, dst) => Instruction::Unary(op, replace(dst)),
+            Instruction::Shift(op, src, dst) => Instruction::Shift(op, replace(src), replace(dst)),
             Instruction::Binary(op, src, dst) => {
                 Instruction::Binary(op, replace(src), replace(dst))
             }
@@ -288,6 +291,18 @@ pub fn convert_instructions(is: Vec<tacker::Instruction>) -> Vec<Instruction> {
                 src: Operand::Register(Register::R10),
                 dst,
             });
+        } else if let Instruction::Shift(op, Operand::Imm(i), dst) = i {
+            instructions.push(Instruction::Shift(op, Operand::Imm(i % 64), dst));
+        } else if let Instruction::Shift(op, src, dst) = i {
+            instructions.push(Instruction::Mov {
+                src,
+                dst: Operand::Register(Register::RCX),
+            });
+            instructions.push(Instruction::Shift(
+                op,
+                Operand::Register(Register::RCX),
+                dst,
+            ));
         } else if let Instruction::Binary(BinaryOp::Cmp, src, dst) = i
             && let Operand::Imm(_) = dst
         {
@@ -416,8 +431,15 @@ impl fmt::Display for UnaryOp {
         match self {
             UnaryOp::Neg => write!(f, "negq"),
             UnaryOp::Not => write!(f, "notq"),
-            UnaryOp::Shl => write!(f, "salq"),
-            UnaryOp::Shr => write!(f, "sarq"),
+        }
+    }
+}
+
+impl fmt::Display for ShiftOp {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            ShiftOp::Shl => write!(f, "salq"),
+            ShiftOp::Shr => write!(f, "sarq"),
         }
     }
 }
@@ -441,13 +463,14 @@ impl fmt::Display for Instruction {
         match self {
             Instruction::Mov { src, dst } => write!(f, "movq\t{}, {}", src, dst),
             Instruction::Unary(op, dst) => write!(f, "{}\t{}", op, dst),
+            Instruction::Shift(op, src, dst) => write!(f, "{}\t{:1}, {}", op, src, dst),
             Instruction::Binary(op, src, dst) => write!(f, "{}\t{}, {}", op, src, dst),
             Instruction::Div(div) => write!(f, "idivq\t{}", div),
             Instruction::Cqo => write!(f, "cqo"),
             Instruction::AllocateStack(offset) => write!(f, "subq\t${}, %rsp", offset),
             Instruction::Jmp(l) => write!(f, "jmp\t.L{}", l),
             Instruction::JmpCC(cc, l) => write!(f, "j{}\t.L{}", cc, l),
-            Instruction::SetCC(cc, l) => write!(f, "set{}\t{}", cc, l),
+            Instruction::SetCC(cc, l) => write!(f, "set{}\t{:1}", cc, l),
             Instruction::Label(l) => write!(f, "\r.L{}:", l),
             Instruction::Ret => write!(f, "movq\t%rbp, %rsp\n\tpopq\t%rbp\n\tretq"),
         }

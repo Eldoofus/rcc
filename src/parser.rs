@@ -55,17 +55,17 @@ pub struct TokenStream<'a> {
     pub tokens: &'a [Token<'a>],
 }
 
-pub fn parse_unaryop(t: Token) -> UnaryOp {
-    return match t {
+pub fn parse_unaryop(t: Token) -> Result<UnaryOp, String> {
+    return Ok(match t {
         Token::Tilde => UnaryOp::BitwiseNot,
         Token::Minus => UnaryOp::Negative,
         Token::Bang => UnaryOp::Negation,
-        _ => panic!("Expected Unary Operator, but found {:?}", t),
-    };
+        _ => Err(format!("Expected Unary Operator, but found {:?}", t))?,
+    });
 }
 
-pub fn parse_binaryop(t: Token) -> BinaryOp {
-    return match t {
+pub fn parse_binaryop(t: Token) -> Result<BinaryOp, String> {
+    return Ok(match t {
         Token::Plus => BinaryOp::Add,
         Token::Minus => BinaryOp::Subtract,
         Token::Star => BinaryOp::Multiply,
@@ -84,8 +84,8 @@ pub fn parse_binaryop(t: Token) -> BinaryOp {
         Token::LeftChevronEqual => BinaryOp::LessEqual,
         Token::RightChevron => BinaryOp::Greater,
         Token::RightChevronEqual => BinaryOp::GreaterEqual,
-        _ => panic!("Expected Binary Operator, but found {:?}", t),
-    };
+        _ => Err(format!("Expected Binary Operator, but found {:?}", t))?,
+    });
 }
 
 pub fn is_binaryop(t: Token) -> bool {
@@ -134,71 +134,76 @@ impl<'a> TokenStream<'a> {
         return (self, t);
     }
 
-    pub fn expect(&mut self, t: Token) -> &mut Self {
+    pub fn expect(&mut self, t: Token) -> Result<&mut Self, String> {
         if self.tokens[0] == t {
             self.tokens = &self.tokens[1..];
         } else {
-            panic!("Expected token: {:?}, but found {:?}", t, self.tokens[0]);
+            Err(format!(
+                "Expected token: {:?}, but found {:?}",
+                t, self.tokens[0]
+            ))?;
         }
-        return self;
+        return Ok(self);
     }
 
-    pub fn parse_factor(&mut self) -> Expression {
+    pub fn parse_factor(&mut self) -> Result<Expression, String> {
         let (_, t) = self.take();
-        return match t {
+        return Ok(match t {
             Token::Constant(c) => Expression::Constant(c),
-            Token::Tilde | Token::Minus => {
-                Expression::Unary(parse_unaryop(t), Box::new(self.parse_factor()))
+            Token::Tilde | Token::Minus | Token::Bang => {
+                Expression::Unary(parse_unaryop(t)?, Box::new(self.parse_factor()?))
             }
             Token::OpenParenthesis => {
-                let inner = self.parse_expression(0);
-                self.expect(Token::CloseParenthesis);
+                let inner = self.parse_expression(0)?;
+                self.expect(Token::CloseParenthesis)?;
                 inner
             }
-            _ => panic!("Expected expression, but found {:?}", t),
-        };
+            _ => Err(format!("Expected expression, but found {:?}", t))?,
+        });
     }
 
-    pub fn parse_expression(&mut self, min_prec: i32) -> Expression {
-        let mut left = self.parse_factor();
+    pub fn parse_expression(&mut self, min_prec: i32) -> Result<Expression, String> {
+        let mut left = self.parse_factor()?;
         let mut t = self.tokens[0];
         let mut tokens = self;
-        while is_binaryop(t) && precedence(parse_binaryop(t)) >= min_prec {
+        while is_binaryop(t) && precedence(parse_binaryop(t)?) >= min_prec {
             (tokens, t) = tokens.take();
-            let op = parse_binaryop(t);
+            let op = parse_binaryop(t)?;
             left = Expression::Binary(
                 op,
                 Box::new(left),
-                Box::new(tokens.parse_expression(precedence(op) + 1)),
+                Box::new(tokens.parse_expression(precedence(op) + 1)?),
             );
             t = tokens.tokens[0];
         }
-        return left;
+        return Ok(left);
     }
 
-    pub fn parse_statement(&mut self) -> Statement {
-        let e = self.expect(Token::Return).parse_expression(0);
-        self.expect(Token::Semicolon);
-        return Statement::Return(e);
+    pub fn parse_statement(&mut self) -> Result<Statement, String> {
+        let e = self.expect(Token::Return)?.parse_expression(0)?;
+        self.expect(Token::Semicolon)?;
+        return Ok(Statement::Return(e));
     }
 
-    pub fn parse_fndef(&'a mut self) -> FnDef<'a> {
-        let (tokens, t) = self.expect(Token::Int).take();
+    pub fn parse_fndef(&'a mut self) -> Result<(&'a mut Self, FnDef<'a>), String> {
+        let (tokens, t) = self.expect(Token::Int)?.take();
         let n = match t {
             Token::Identifier(s) => s,
-            _ => panic!("Expected identifier, but found {:?}", t),
+            _ => Err(format!("Expected identifier, but found {:?}", t))?,
         };
         let s = tokens
-            .expect(Token::OpenParenthesis)
-            .expect(Token::Void)
-            .expect(Token::CloseParenthesis)
-            .expect(Token::OpenBrace)
-            .parse_statement();
-        tokens.expect(Token::CloseBrace);
-        return FnDef::Function { name: n, body: s };
+            .expect(Token::OpenParenthesis)?
+            .expect(Token::Void)?
+            .expect(Token::CloseParenthesis)?
+            .expect(Token::OpenBrace)?
+            .parse_statement()?;
+        tokens.expect(Token::CloseBrace)?;
+        return Ok((tokens, FnDef::Function { name: n, body: s }));
     }
 
-    pub fn parse(&'a mut self) -> PgDef<'a> {
-        return PgDef::Program(self.parse_fndef());
+    pub fn parse(&'a mut self) -> Result<PgDef<'a>, String> {
+        let (tokens, fndef) = self.parse_fndef()?;
+        tokens.expect(Token::EndOfFile)?;
+        return Ok(PgDef::Program(fndef));
     }
 }

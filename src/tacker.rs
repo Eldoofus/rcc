@@ -109,24 +109,24 @@ impl Tacker {
             }
             parser::Expression::Binary(op, e1, e2) => {
                 let (tacker, src1) = self.convert_expression(*e1, instructions);
+                let short_circuit = tacker.lblc;
                 if op == parser::BinaryOp::Conjunction {
                     instructions.push(Instruction::JumpIfZero {
                         cond: src1,
-                        target: tacker.lblc,
+                        target: short_circuit,
                     });
+                    tacker.lblc += 1;
                 } else if op == parser::BinaryOp::Disjunction {
                     instructions.push(Instruction::JumpIfNotZero {
                         cond: src1,
-                        target: tacker.lblc,
+                        target: short_circuit,
                     });
+                    tacker.lblc += 1;
                 }
                 let (tacker, src2) = tacker.convert_expression(*e2, instructions);
                 let dst = Val::Temp(tacker.tmpc);
                 tacker.tmpc += 1;
                 if op == parser::BinaryOp::Conjunction {
-                    let short_circuit = tacker.lblc;
-                    let end = tacker.lblc + 1;
-                    tacker.lblc += 2;
                     instructions.push(Instruction::JumpIfZero {
                         cond: src2,
                         target: short_circuit,
@@ -135,18 +135,18 @@ impl Tacker {
                         src: Val::Constant(1),
                         dst,
                     });
-                    instructions.push(Instruction::Jump { target: end });
+                    instructions.push(Instruction::Jump {
+                        target: tacker.lblc,
+                    });
                     instructions.push(Instruction::Label(short_circuit));
                     instructions.push(Instruction::Copy {
                         src: Val::Constant(0),
                         dst,
                     });
-                    instructions.push(Instruction::Label(end));
+                    instructions.push(Instruction::Label(tacker.lblc));
+                    tacker.lblc += 1;
                 } else if op == parser::BinaryOp::Disjunction {
-                    let short_circuit = tacker.lblc;
-                    let end = tacker.lblc + 1;
-                    tacker.lblc += 2;
-                    instructions.push(Instruction::JumpIfZero {
+                    instructions.push(Instruction::JumpIfNotZero {
                         cond: src2,
                         target: short_circuit,
                     });
@@ -154,13 +154,16 @@ impl Tacker {
                         src: Val::Constant(0),
                         dst,
                     });
-                    instructions.push(Instruction::Jump { target: end });
+                    instructions.push(Instruction::Jump {
+                        target: tacker.lblc,
+                    });
                     instructions.push(Instruction::Label(short_circuit));
                     instructions.push(Instruction::Copy {
                         src: Val::Constant(1),
                         dst,
                     });
-                    instructions.push(Instruction::Label(end));
+                    instructions.push(Instruction::Label(tacker.lblc));
+                    tacker.lblc += 1;
                 } else {
                     instructions.push(Instruction::Binary {
                         op: match op {

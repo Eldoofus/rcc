@@ -42,9 +42,12 @@ pub enum Token<'a> {
 
     // EOF
     EndOfFile,
+
+    // Unknown
+    Unknown(&'a str),
 }
 
-pub fn lex<'a>(input: &'a str) -> Vec<Token<'a>> {
+pub fn lex<'a>(input: &'a str) -> Result<Vec<Token<'a>>, String> {
     let lts = [
         (Token::Constant(0), Regex::new(r"^[0-9]+\b").unwrap()),
         (
@@ -87,6 +90,8 @@ pub fn lex<'a>(input: &'a str) -> Vec<Token<'a>> {
         (Token::RightChevronEqual, Regex::new(r"^>=").unwrap()),
     ];
 
+    let unknown = Regex::new(r"^\S+?\b").unwrap();
+
     let mut tokens: Vec<Token> = Vec::new();
     let mut input = input.trim();
 
@@ -124,7 +129,11 @@ pub fn lex<'a>(input: &'a str) -> Vec<Token<'a>> {
         }
 
         if maxlen == 0 {
-            panic!("Syntax error: unrecognised token encountered");
+            let tok = unknown.find(input).map(|x| x.as_str()).unwrap_or(input);
+            return Err(format!(
+                "Syntax error: unrecognised token '{}' encountered",
+                tok
+            ));
         }
 
         tokens.push(token);
@@ -132,5 +141,5 @@ pub fn lex<'a>(input: &'a str) -> Vec<Token<'a>> {
     }
 
     tokens.push(Token::EndOfFile);
-    return tokens;
+    return Ok(tokens);
 }
