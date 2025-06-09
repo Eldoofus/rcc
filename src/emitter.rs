@@ -68,23 +68,19 @@ pub enum Instruction {
 }
 
 #[derive(Debug)]
-pub enum FnDef<'a> {
-    Function {
-        name: &'a str,
-        instructions: Vec<Instruction>,
-    },
+pub struct Function<'a> {
+    pub name: &'a str,
+    pub instructions: Vec<Instruction>,
 }
 
 #[derive(Debug)]
-pub enum PgDef<'a> {
-    Program(FnDef<'a>),
-}
+pub struct Program<'a>(pub Function<'a>);
 
 pub fn convert_val(v: tacker::Val) -> Operand {
     return match v {
         tacker::Val::Constant(i) => Operand::Imm(i),
         tacker::Val::Temp(id) => Operand::Pseudo(id),
-        _ => unreachable!(),
+        tacker::Val::Local(_, id) => Operand::Pseudo(id),
     };
 }
 
@@ -360,17 +356,15 @@ pub fn convert_instructions(is: Vec<tacker::Instruction>) -> Vec<Instruction> {
     return instructions;
 }
 
-pub fn convert_function(f: tacker::FnDef) -> FnDef {
-    let tacker::FnDef::Function { name, instructions } = f;
-    return FnDef::Function {
+pub fn convert_function(tacker::Function { name, instructions }: tacker::Function) -> Function {
+    return Function {
         name,
         instructions: convert_instructions(instructions),
     };
 }
 
-pub fn convert(p: tacker::PgDef) -> PgDef {
-    let tacker::PgDef::Program(f) = p;
-    return PgDef::Program(convert_function(f));
+pub fn convert(tacker::Program(f): tacker::Program) -> Program {
+    return Program(convert_function(f));
 }
 
 impl fmt::Display for Register {
@@ -477,9 +471,9 @@ impl fmt::Display for Instruction {
     }
 }
 
-impl<'a> fmt::Display for FnDef<'a> {
+impl<'a> fmt::Display for Function<'a> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let FnDef::Function { name, instructions } = self;
+        let Function { name, instructions } = self;
         writeln!(
             f,
             "\t.globl\t{}\n{0}:\n\tpushq\t%rbp\n\tmovq\t%rsp, %rbp",
@@ -492,9 +486,9 @@ impl<'a> fmt::Display for FnDef<'a> {
     }
 }
 
-impl<'a> fmt::Display for PgDef<'a> {
+impl<'a> fmt::Display for Program<'a> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let PgDef::Program(func) = self;
+        let Program(func) = self;
         writeln!(f, "{}\t.section\t.note.GNU-stack,\"\",@progbits", func)
     }
 }

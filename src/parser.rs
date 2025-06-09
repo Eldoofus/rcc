@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use crate::lexer::Token;
 
 #[derive(Debug)]
@@ -27,32 +29,51 @@ pub enum BinaryOp {
     LessEqual,
     Greater,
     GreaterEqual,
+    Assign,
 }
 
 #[derive(Debug)]
-pub enum Expression {
+pub enum Expression<'a> {
     Constant(i64),
-    Unary(UnaryOp, Box<Expression>),
-    Binary(BinaryOp, Box<Expression>, Box<Expression>),
+    Var(&'a str, u32),
+    Unary(UnaryOp, Box<Expression<'a>>),
+    Binary(BinaryOp, Box<Expression<'a>>, Box<Expression<'a>>),
+    Assignment(Box<Expression<'a>>, Box<Expression<'a>>),
 }
 
 #[derive(Debug)]
-pub enum Statement {
-    Return(Expression),
+pub struct Declaration<'a> {
+    pub name: &'a str,
+    pub id: u32,
+    pub init: Option<Expression<'a>>,
 }
 
 #[derive(Debug)]
-pub enum FnDef<'a> {
-    Function { name: &'a str, body: Statement },
+pub enum Statement<'a> {
+    Return(Expression<'a>),
+    Expression(Expression<'a>),
+    Null,
 }
 
 #[derive(Debug)]
-pub enum PgDef<'a> {
-    Program(FnDef<'a>),
+pub enum BlockItem<'a> {
+    Stmt(Statement<'a>),
+    Decl(Declaration<'a>),
 }
+
+#[derive(Debug)]
+pub struct Function<'a> {
+    pub name: &'a str,
+    pub body: Vec<BlockItem<'a>>,
+}
+
+#[derive(Debug)]
+pub struct Program<'a>(pub Function<'a>);
 
 pub struct TokenStream<'a> {
     pub tokens: &'a [Token<'a>],
+    pub varc: u32,
+    pub var_map: HashMap<&'a str, u32>,
 }
 
 pub fn parse_unaryop(t: Token) -> Result<UnaryOp, String> {
@@ -78,6 +99,7 @@ pub fn parse_binaryop(t: Token) -> Result<BinaryOp, String> {
         Token::DoubleRightChevron => BinaryOp::BitshiftRight,
         Token::DoubleAmpersand => BinaryOp::Conjunction,
         Token::DoublePipe => BinaryOp::Disjunction,
+        Token::Equal => BinaryOp::Assign,
         Token::DoubleEqual => BinaryOp::Equal,
         Token::BangEqual => BinaryOp::NotEqual,
         Token::LeftChevron => BinaryOp::Less,
@@ -102,6 +124,7 @@ pub fn is_binaryop(t: Token) -> bool {
         | Token::DoubleRightChevron
         | Token::DoubleAmpersand
         | Token::DoublePipe
+        | Token::Equal
         | Token::DoubleEqual
         | Token::BangEqual
         | Token::LeftChevron
@@ -124,32 +147,46 @@ pub fn precedence(op: BinaryOp) -> i32 {
         BinaryOp::BitwiseOr => 6,
         BinaryOp::Conjunction => 5,
         BinaryOp::Disjunction => 4,
+        BinaryOp::Assign => 2,
     };
 }
 
 impl<'a> TokenStream<'a> {
-    pub fn take(&mut self) -> (&mut Self, Token) {
+    pub fn take(&mut self) -> Token<'a> {
         let t = self.tokens[0];
         self.tokens = &self.tokens[1..];
-        return (self, t);
+        return t;
     }
 
     pub fn expect(&mut self, t: Token) -> Result<&mut Self, String> {
         if self.tokens[0] == t {
             self.tokens = &self.tokens[1..];
+            return Ok(self);
         } else {
-            Err(format!(
+            return Err(format!(
                 "Expected token: {:?}, but found {:?}",
                 t, self.tokens[0]
-            ))?;
+            ));
         }
-        return Ok(self);
     }
 
-    pub fn parse_factor(&mut self) -> Result<Expression, String> {
-        let (_, t) = self.take();
+    pub fn identifier(&mut self) -> Result<&'a str, String> {
+        let t = self.tokens[0];
+        self.tokens = &self.tokens[1..];
+        return match t {
+            Token::Identifier(s) => Ok(s),
+            _ => Err(format!("Expected identifier, but found {:?}", t)),
+        };
+    }
+
+    pub fn parse_factor(&mut self) -> Result<Expression<'a>, String> {
+        let t = self.take();
         return Ok(match t {
             Token::Constant(c) => Expression::Constant(c),
+            Token::Identifier(n) => match self.var_map.get(n) {
+                Some(&id) => Expression::Var(n, id),
+                None => return Err(format!("Use of undeclared identifier '{}'", n)),
+            },
             Token::Tilde | Token::Minus | Token::Bang => {
                 Expression::Unary(parse_unaryop(t)?, Box::new(self.parse_factor()?))
             }
@@ -158,52 +195,92 @@ impl<'a> TokenStream<'a> {
                 self.expect(Token::CloseParenthesis)?;
                 inner
             }
-            _ => Err(format!("Expected expression, but found {:?}", t))?,
+            _ => return Err(format!("Expected expression, but found {:?}", t)),
         });
     }
 
-    pub fn parse_expression(&mut self, min_prec: i32) -> Result<Expression, String> {
+    pub fn parse_expression(&mut self, min_prec: i32) -> Result<Expression<'a>, String> {
         let mut left = self.parse_factor()?;
         let mut t = self.tokens[0];
-        let mut tokens = self;
         while is_binaryop(t) && precedence(parse_binaryop(t)?) >= min_prec {
-            (tokens, t) = tokens.take();
+            t = self.take();
             let op = parse_binaryop(t)?;
-            left = Expression::Binary(
-                op,
-                Box::new(left),
-                Box::new(tokens.parse_expression(precedence(op) + 1)?),
-            );
-            t = tokens.tokens[0];
+            left = match t {
+                Token::Equal => match left {
+                    Expression::Var(_, _) => Expression::Assignment(
+                        Box::new(left),
+                        Box::new(self.parse_expression(precedence(op))?),
+                    ),
+                    _ => return Err(format!("Left hand side of assignment must be an lvalue")),
+                },
+                _ => Expression::Binary(
+                    op,
+                    Box::new(left),
+                    Box::new(self.parse_expression(precedence(op) + 1)?),
+                ),
+            };
+            t = self.tokens[0];
         }
         return Ok(left);
     }
 
-    pub fn parse_statement(&mut self) -> Result<Statement, String> {
-        let e = self.expect(Token::Return)?.parse_expression(0)?;
+    pub fn parse_block_item(&mut self) -> Result<BlockItem<'a>, String> {
+        let t = self.tokens[0];
+        let b = Ok(match t {
+            Token::Int => {
+                let n = self.expect(Token::Int)?.identifier()?;
+                if self.var_map.contains_key(n) {
+                    return Err(format!("Variable '{}' already declared", n));
+                }
+                self.var_map.insert(n, self.varc);
+                self.varc += 1;
+                BlockItem::Decl(Declaration {
+                    name: n,
+                    id: self.varc - 1,
+                    init: match self.tokens[0] {
+                        Token::Equal => Some(self.expect(Token::Equal)?.parse_expression(0)?),
+                        Token::Semicolon => None,
+                        _ => {
+                            return Err(format!(
+                                "Expected semicolon or initialiser, but found {:?}",
+                                t
+                            ));
+                        }
+                    },
+                })
+            }
+            Token::Return => BlockItem::Stmt(Statement::Return(
+                self.expect(Token::Return)?.parse_expression(0)?,
+            )),
+            Token::Semicolon => {
+                self.expect(Token::Semicolon)?;
+                return Ok(BlockItem::Stmt(Statement::Null));
+            }
+            _ => BlockItem::Stmt(Statement::Expression(self.parse_expression(0)?)),
+        });
         self.expect(Token::Semicolon)?;
-        return Ok(Statement::Return(e));
+        return b;
     }
 
-    pub fn parse_fndef(&'a mut self) -> Result<(&'a mut Self, FnDef<'a>), String> {
-        let (tokens, t) = self.expect(Token::Int)?.take();
-        let n = match t {
-            Token::Identifier(s) => s,
-            _ => Err(format!("Expected identifier, but found {:?}", t))?,
-        };
-        let s = tokens
-            .expect(Token::OpenParenthesis)?
+    pub fn parse_function(&mut self) -> Result<Function<'a>, String> {
+        let n = self.expect(Token::Int)?.identifier()?;
+        self.expect(Token::OpenParenthesis)?
             .expect(Token::Void)?
             .expect(Token::CloseParenthesis)?
-            .expect(Token::OpenBrace)?
-            .parse_statement()?;
-        tokens.expect(Token::CloseBrace)?;
-        return Ok((tokens, FnDef::Function { name: n, body: s }));
+            .expect(Token::OpenBrace)?;
+        let mut body: Vec<BlockItem> = Vec::new();
+        let mut t = self.tokens[0];
+        while t != Token::CloseBrace {
+            body.push(self.parse_block_item()?);
+            t = self.tokens[0];
+        }
+        self.expect(Token::CloseBrace)?;
+        return Ok(Function { name: n, body });
     }
 
-    pub fn parse(&'a mut self) -> Result<PgDef<'a>, String> {
-        let (tokens, fndef) = self.parse_fndef()?;
-        tokens.expect(Token::EndOfFile)?;
-        return Ok(PgDef::Program(fndef));
+    pub fn parse(&mut self) -> Result<Program<'a>, String> {
+        let func = self.parse_function()?;
+        self.expect(Token::EndOfFile)?;
+        return Ok(Program(func));
     }
 }

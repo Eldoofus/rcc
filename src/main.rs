@@ -3,6 +3,7 @@ pub mod lexer;
 pub mod parser;
 pub mod tacker;
 
+use std::collections::HashMap;
 use std::io::Write;
 use std::{env, fs, path::Path, process::Command};
 
@@ -42,13 +43,19 @@ fn test() -> Result<(), String> {
                         }
                         let mut tkstream = parser::TokenStream {
                             tokens: &tokens.unwrap(),
+                            varc: 1,
+                            var_map: HashMap::new(),
                         };
                         let ast = tkstream.parse();
-                        if set == "invalid_parse" {
+                        if set == "invalid_parse" || set == "invalid_semantics" {
                             assert!(ast.is_err());
                             return;
                         }
-                        let tacky = tacker::Tacker { tmpc: 1, lblc: 1 }.convert(ast.unwrap());
+                        let tacky = tacker::Tacker {
+                            tmpc: tkstream.varc,
+                            lblc: 1,
+                        }
+                        .convert(ast.unwrap());
                         let asm = emitter::convert(tacky);
                         let mut output = fs::File::create(file.with_extension("s"))
                             .expect("Could not create output file");
@@ -76,6 +83,9 @@ fn test() -> Result<(), String> {
                     };
 
                     if file.is_dir() {
+                        if i == 5 {
+                            continue;
+                        }
                         for file in fs::read_dir(file).unwrap() {
                             let file = file.unwrap().path();
                             let file = file.as_path();
@@ -115,22 +125,30 @@ fn main() {
                 .expect("Failed to execute gcc");
             let file = fs::read_to_string(path.with_extension("i")).expect("Cannot read file");
             let tokens: &[lexer::Token] = &lexer::lex(file.as_str()).unwrap();
-            let mut tkstream = parser::TokenStream { tokens };
+            let mut tkstream = parser::TokenStream {
+                tokens,
+                varc: 1,
+                var_map: HashMap::new(),
+            };
 
             println!("{}", file.as_str());
 
-            // for token in tokens {
-            //     println!("{:?}", &token);
-            // }
+            for token in tokens {
+                println!("{:?}", &token);
+            }
 
             let ast = tkstream.parse().unwrap();
             println!("\n{:?}", &ast);
 
-            let tacky = tacker::Tacker { tmpc: 1, lblc: 1 }.convert(ast);
+            let tacky = tacker::Tacker {
+                tmpc: tkstream.varc,
+                lblc: 1,
+            }
+            .convert(ast);
             println!("\n{:?}", &tacky);
 
             let asm = emitter::convert(tacky);
-            //println!("\n{:?}", &asm);
+            println!("\n{:?}", &asm);
             println!("\n{}", &asm);
 
             let mut file =

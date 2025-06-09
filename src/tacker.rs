@@ -31,7 +31,7 @@ pub enum BinaryOp {
 pub enum Val<'a> {
     Constant(i64),
     Temp(u32),
-    Local(&'a str),
+    Local(&'a str, u32),
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -67,17 +67,13 @@ pub enum Instruction<'a> {
 }
 
 #[derive(Debug)]
-pub enum FnDef<'a> {
-    Function {
-        name: &'a str,
-        instructions: Vec<Instruction<'a>>,
-    },
+pub struct Function<'a> {
+    pub name: &'a str,
+    pub instructions: Vec<Instruction<'a>>,
 }
 
 #[derive(Debug)]
-pub enum PgDef<'a> {
-    Program(FnDef<'a>),
-}
+pub struct Program<'a>(pub Function<'a>);
 
 pub struct Tacker {
     pub tmpc: u32,
@@ -87,15 +83,16 @@ pub struct Tacker {
 impl Tacker {
     pub fn convert_expression<'a>(
         &mut self,
-        e: parser::Expression,
+        e: parser::Expression<'a>,
         instructions: &mut Vec<Instruction<'a>>,
-    ) -> (&mut Self, Val<'a>) {
+    ) -> Val<'a> {
         match e {
-            parser::Expression::Constant(i) => (self, Val::Constant(i)),
+            parser::Expression::Constant(i) => Val::Constant(i),
+            parser::Expression::Var(n, id) => Val::Local(n, id),
             parser::Expression::Unary(op, inner) => {
-                let (tacker, src) = self.convert_expression(*inner, instructions);
-                let dst = Val::Temp(tacker.tmpc);
-                tacker.tmpc += 1;
+                let src = self.convert_expression(*inner, instructions);
+                let dst = Val::Temp(self.tmpc);
+                self.tmpc += 1;
                 instructions.push(Instruction::Unary {
                     op: match op {
                         parser::UnaryOp::BitwiseNot => UnaryOp::BitwiseNot,
@@ -105,27 +102,27 @@ impl Tacker {
                     src,
                     dst,
                 });
-                (tacker, dst)
+                dst
             }
             parser::Expression::Binary(op, e1, e2) => {
-                let (tacker, src1) = self.convert_expression(*e1, instructions);
-                let short_circuit = tacker.lblc;
+                let src1 = self.convert_expression(*e1, instructions);
+                let short_circuit = self.lblc;
                 if op == parser::BinaryOp::Conjunction {
                     instructions.push(Instruction::JumpIfZero {
                         cond: src1,
                         target: short_circuit,
                     });
-                    tacker.lblc += 1;
+                    self.lblc += 1;
                 } else if op == parser::BinaryOp::Disjunction {
                     instructions.push(Instruction::JumpIfNotZero {
                         cond: src1,
                         target: short_circuit,
                     });
-                    tacker.lblc += 1;
+                    self.lblc += 1;
                 }
-                let (tacker, src2) = tacker.convert_expression(*e2, instructions);
-                let dst = Val::Temp(tacker.tmpc);
-                tacker.tmpc += 1;
+                let src2 = self.convert_expression(*e2, instructions);
+                let dst = Val::Temp(self.tmpc);
+                self.tmpc += 1;
                 if op == parser::BinaryOp::Conjunction {
                     instructions.push(Instruction::JumpIfZero {
                         cond: src2,
@@ -135,16 +132,14 @@ impl Tacker {
                         src: Val::Constant(1),
                         dst,
                     });
-                    instructions.push(Instruction::Jump {
-                        target: tacker.lblc,
-                    });
+                    instructions.push(Instruction::Jump { target: self.lblc });
                     instructions.push(Instruction::Label(short_circuit));
                     instructions.push(Instruction::Copy {
                         src: Val::Constant(0),
                         dst,
                     });
-                    instructions.push(Instruction::Label(tacker.lblc));
-                    tacker.lblc += 1;
+                    instructions.push(Instruction::Label(self.lblc));
+                    self.lblc += 1;
                 } else if op == parser::BinaryOp::Disjunction {
                     instructions.push(Instruction::JumpIfNotZero {
                         cond: src2,
@@ -154,16 +149,14 @@ impl Tacker {
                         src: Val::Constant(0),
                         dst,
                     });
-                    instructions.push(Instruction::Jump {
-                        target: tacker.lblc,
-                    });
+                    instructions.push(Instruction::Jump { target: self.lblc });
                     instructions.push(Instruction::Label(short_circuit));
                     instructions.push(Instruction::Copy {
                         src: Val::Constant(1),
                         dst,
                     });
-                    instructions.push(Instruction::Label(tacker.lblc));
-                    tacker.lblc += 1;
+                    instructions.push(Instruction::Label(self.lblc));
+                    self.lblc += 1;
                 } else {
                     instructions.push(Instruction::Binary {
                         op: match op {
@@ -190,26 +183,64 @@ impl Tacker {
                         dst,
                     });
                 }
-                (tacker, dst)
+                dst
+            }
+            parser::Expression::Assignment(left, right) => {
+                let dst = match *left {
+                    parser::Expression::Var(name, id) => Val::Local(name, id),
+                    _ => unreachable!(),
+                };
+                let src = self.convert_expression(*right, instructions);
+                instructions.push(Instruction::Copy { src, dst });
+                dst
             }
         }
     }
 
-    pub fn convert_statement(&mut self, s: parser::Statement, instructions: &mut Vec<Instruction>) {
-        let parser::Statement::Return(e) = s;
-        let (_, r) = self.convert_expression(e, instructions);
-        instructions.push(Instruction::Return(r));
+    pub fn convert_block_item<'a>(
+        &mut self,
+        b: parser::BlockItem<'a>,
+        instructions: &mut Vec<Instruction<'a>>,
+    ) {
+        match b {
+            parser::BlockItem::Decl(parser::Declaration { name, id, init }) => {
+                if let Some(init) = init {
+                    let src = self.convert_expression(init, instructions);
+                    instructions.push(Instruction::Copy {
+                        src,
+                        dst: Val::Local(name, id),
+                    });
+                }
+            }
+            parser::BlockItem::Stmt(s) => match s {
+                parser::Statement::Return(e) => {
+                    let r = self.convert_expression(e, instructions);
+                    instructions.push(Instruction::Return(r));
+                }
+                parser::Statement::Expression(e) => {
+                    self.convert_expression(e, instructions);
+                }
+                parser::Statement::Null => (),
+            },
+        }
     }
 
-    pub fn convert_function<'a>(&mut self, f: parser::FnDef<'a>) -> FnDef<'a> {
+    pub fn convert_function<'a>(&mut self, f: parser::Function<'a>) -> Function<'a> {
         let mut instructions: Vec<Instruction> = Vec::new();
-        let parser::FnDef::Function { name, body } = f;
-        self.convert_statement(body, &mut instructions);
-        return FnDef::Function { name, instructions };
+        let parser::Function { name, body } = f;
+        for b in body {
+            self.convert_block_item(b, &mut instructions);
+        }
+        if name == "main" {
+            match instructions.last() {
+                Some(Instruction::Return(_)) => (),
+                _ => instructions.push(Instruction::Return(Val::Constant(0))),
+            }
+        }
+        return Function { name, instructions };
     }
 
-    pub fn convert<'a>(&mut self, p: parser::PgDef<'a>) -> PgDef<'a> {
-        let parser::PgDef::Program(f) = p;
-        return PgDef::Program(self.convert_function(f));
+    pub fn convert<'a>(&mut self, parser::Program(f): parser::Program<'a>) -> Program<'a> {
+        return Program(self.convert_function(f));
     }
 }

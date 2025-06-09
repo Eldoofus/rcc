@@ -35,6 +35,7 @@ pub enum Token<'a> {
     LeftChevron,        // <
     DoubleRightChevron, // >>
     RightChevron,       // >
+    Equal,              // =
     DoubleEqual,        // ==
     BangEqual,          // !=
     LeftChevronEqual,   // <=
@@ -84,6 +85,7 @@ pub fn lex<'a>(input: &'a str) -> Result<Vec<Token<'a>>, String> {
         (Token::LeftChevron, Regex::new(r"^<").unwrap()),
         (Token::DoubleRightChevron, Regex::new(r"^>>").unwrap()),
         (Token::RightChevron, Regex::new(r"^>").unwrap()),
+        (Token::Equal, Regex::new(r"^=").unwrap()),
         (Token::DoubleEqual, Regex::new(r"^==").unwrap()),
         (Token::BangEqual, Regex::new(r"^!=").unwrap()),
         (Token::LeftChevronEqual, Regex::new(r"^<=").unwrap()),
