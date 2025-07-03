@@ -12,34 +12,44 @@ pub enum Token<'a> {
     Return, // return\b
 
     // MonoChar & DuoChar Tokens
-    OpenParenthesis,    // \(
-    CloseParenthesis,   // \)
-    OpenBrace,          // \{
-    CloseBrace,         // \}
-    Semicolon,          // ;
-    Tilde,              // ~
-    DoublePlus,         // \+\+
-    Plus,               // \+
-    DoubleMinus,        // --
-    Minus,              // -
-    Star,               // \*
-    Slash,              // /
-    Percent,            // %
-    Bang,               // !
-    DoubleAmpersand,    // &&
-    Ampersand,          // &
-    DoublePipe,         // \|\|
-    Pipe,               // \|
-    Carat,              // \^
-    DoubleLeftChevron,  // <<
-    LeftChevron,        // <
-    DoubleRightChevron, // >>
-    RightChevron,       // >
-    Equal,              // =
-    DoubleEqual,        // ==
-    BangEqual,          // !=
-    LeftChevronEqual,   // <=
-    RightChevronEqual,  // >=
+    OpenParenthesis,         // \(
+    CloseParenthesis,        // \)
+    OpenBrace,               // \{
+    CloseBrace,              // \}
+    Semicolon,               // ;
+    Tilde,                   // ~
+    DoublePlus,              // \+\+
+    Plus,                    // \+
+    DoubleMinus,             // --
+    Minus,                   // -
+    Star,                    // \*
+    Slash,                   // /
+    Percent,                 // %
+    Bang,                    // !
+    DoubleAmpersand,         // &&
+    Ampersand,               // &
+    DoublePipe,              // \|\|
+    Pipe,                    // \|
+    Carat,                   // \^
+    DoubleLeftChevron,       // <<
+    LeftChevron,             // <
+    DoubleRightChevron,      // >>
+    RightChevron,            // >
+    Equal,                   // =
+    PlusEqual,               // \+=
+    MinusEqual,              // -=
+    StarEqual,               // \*=
+    SlashEqual,              // /=
+    PercentEqual,            // %=
+    AmpersandEqual,          // &=
+    PipeEqual,               // \|=
+    CaratEqual,              // \^=
+    DoubleLeftChevronEqual,  // <<=
+    DoubleRightChevronEqual, // >>=
+    DoubleEqual,             // ==
+    BangEqual,               // !=
+    LeftChevronEqual,        // <=
+    RightChevronEqual,       // >=
 
     // EOF
     EndOfFile,
@@ -51,10 +61,7 @@ pub enum Token<'a> {
 pub fn lex<'a>(input: &'a str) -> Result<Vec<Token<'a>>, String> {
     let lts = [
         (Token::Constant(0), Regex::new(r"^[0-9]+\b").unwrap()),
-        (
-            Token::Identifier(""),
-            Regex::new(r"^[a-zA-Z_]\w*\b").unwrap(),
-        ),
+        (Token::Identifier(""), Regex::new(r"^[a-zA-Z_]\w*\b").unwrap()),
     ];
     let kws = [
         (Token::Int, Regex::new(r"^int\b").unwrap()),
@@ -86,6 +93,16 @@ pub fn lex<'a>(input: &'a str) -> Result<Vec<Token<'a>>, String> {
         (Token::DoubleRightChevron, Regex::new(r"^>>").unwrap()),
         (Token::RightChevron, Regex::new(r"^>").unwrap()),
         (Token::Equal, Regex::new(r"^=").unwrap()),
+        (Token::PlusEqual, Regex::new(r"^\+=").unwrap()),
+        (Token::MinusEqual, Regex::new(r"^-=").unwrap()),
+        (Token::StarEqual, Regex::new(r"^\*=").unwrap()),
+        (Token::SlashEqual, Regex::new(r"^/=").unwrap()),
+        (Token::PercentEqual, Regex::new(r"^%=").unwrap()),
+        (Token::AmpersandEqual, Regex::new(r"^&=").unwrap()),
+        (Token::PipeEqual, Regex::new(r"^\|=").unwrap()),
+        (Token::CaratEqual, Regex::new(r"^\^=").unwrap()),
+        (Token::DoubleLeftChevronEqual, Regex::new(r"^<<=").unwrap()),
+        (Token::DoubleRightChevronEqual, Regex::new(r"^>>=").unwrap()),
         (Token::DoubleEqual, Regex::new(r"^==").unwrap()),
         (Token::BangEqual, Regex::new(r"^!=").unwrap()),
         (Token::LeftChevronEqual, Regex::new(r"^<=").unwrap()),
@@ -106,11 +123,7 @@ pub fn lex<'a>(input: &'a str) -> Result<Vec<Token<'a>>, String> {
                 if tok.len() > maxlen {
                     maxlen = tok.len();
                     token = match lt.0 {
-                        Token::Constant(_) => Token::Constant(
-                            tok.as_str()
-                                .parse()
-                                .expect("Invalid Integer literal encountered"),
-                        ),
+                        Token::Constant(_) => Token::Constant(tok.as_str().parse().expect("Invalid Integer literal encountered")),
                         Token::Identifier(_) => kws
                             .iter()
                             .find_map(|kw| kw.1.is_match(tok.as_str()).then_some(kw.0))
@@ -132,10 +145,7 @@ pub fn lex<'a>(input: &'a str) -> Result<Vec<Token<'a>>, String> {
 
         if maxlen == 0 {
             let tok = unknown.find(input).map(|x| x.as_str()).unwrap_or(input);
-            return Err(format!(
-                "Syntax error: unrecognised token '{}' encountered",
-                tok
-            ));
+            return Err(format!("Syntax error: unrecognised token '{}' encountered", tok));
         }
 
         tokens.push(token);

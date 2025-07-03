@@ -57,8 +57,7 @@ fn test() -> Result<(), String> {
                         }
                         .convert(ast.unwrap());
                         let asm = emitter::convert(tacky);
-                        let mut output = fs::File::create(file.with_extension("s"))
-                            .expect("Could not create output file");
+                        let mut output = fs::File::create(file.with_extension("s")).expect("Could not create output file");
                         writeln!(&mut output, "{}", &asm).unwrap();
                         Command::new("gcc")
                             .arg(file.with_extension("s"))
@@ -83,9 +82,6 @@ fn test() -> Result<(), String> {
                     };
 
                     if file.is_dir() {
-                        if i == 5 {
-                            continue;
-                        }
                         for file in fs::read_dir(file).unwrap() {
                             let file = file.unwrap().path();
                             let file = file.as_path();
@@ -151,8 +147,7 @@ fn main() {
             println!("\n{:?}", &asm);
             println!("\n{}", &asm);
 
-            let mut file =
-                fs::File::create(path.with_extension("s")).expect("Could not create output file");
+            let mut file = fs::File::create(path.with_extension("s")).expect("Could not create output file");
             writeln!(&mut file, "{}", &asm).unwrap();
 
             Command::new("gcc")

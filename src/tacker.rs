@@ -80,40 +80,78 @@ pub struct Tacker {
     pub lblc: u32,
 }
 
+pub fn convert_binop(op: parser::BinaryOp) -> BinaryOp {
+    return match op {
+        parser::BinaryOp::Add => BinaryOp::Add,
+        parser::BinaryOp::Subtract => BinaryOp::Subtract,
+        parser::BinaryOp::Multiply => BinaryOp::Multiply,
+        parser::BinaryOp::Divide => BinaryOp::Divide,
+        parser::BinaryOp::Modulo => BinaryOp::Modulo,
+        parser::BinaryOp::BitwiseAnd => BinaryOp::BitwiseAnd,
+        parser::BinaryOp::BitwiseOr => BinaryOp::BitwiseOr,
+        parser::BinaryOp::BitwiseXor => BinaryOp::BitwiseXor,
+        parser::BinaryOp::BitshiftLeft => BinaryOp::BitshiftLeft,
+        parser::BinaryOp::BitshiftRight => BinaryOp::BitshiftRight,
+        parser::BinaryOp::Equal => BinaryOp::Equal,
+        parser::BinaryOp::NotEqual => BinaryOp::NotEqual,
+        parser::BinaryOp::Less => BinaryOp::Less,
+        parser::BinaryOp::LessEqual => BinaryOp::LessEqual,
+        parser::BinaryOp::Greater => BinaryOp::Greater,
+        parser::BinaryOp::GreaterEqual => BinaryOp::GreaterEqual,
+        _ => unreachable!(),
+    };
+}
+
 impl Tacker {
-    pub fn convert_expression<'a>(
-        &mut self,
-        e: parser::Expression<'a>,
-        instructions: &mut Vec<Instruction<'a>>,
-    ) -> Val<'a> {
+    pub fn convert_expression<'a>(&mut self, e: parser::Expression<'a>, instructions: &mut Vec<Instruction<'a>>) -> Val<'a> {
         match e {
             parser::Expression::Constant(i) => Val::Constant(i),
             parser::Expression::Var(n, id) => Val::Local(n, id),
             parser::Expression::Unary(op, inner) => {
                 let src = self.convert_expression(*inner, instructions);
-                let dst = Val::Temp(self.tmpc);
-                self.tmpc += 1;
-                instructions.push(Instruction::Unary {
-                    op: match op {
-                        parser::UnaryOp::BitwiseNot => UnaryOp::BitwiseNot,
-                        parser::UnaryOp::Negative => UnaryOp::Negative,
-                        parser::UnaryOp::Negation => UnaryOp::Negation,
+                let dst = if let parser::UnaryOp::PreIncrement | parser::UnaryOp::PreDecrement = op {
+                    src
+                } else {
+                    self.tmpc += 1;
+                    Val::Temp(self.tmpc - 1)
+                };
+                if let parser::UnaryOp::PostIncrement | parser::UnaryOp::PostDecrement = op {
+                    instructions.push(Instruction::Copy { src, dst });
+                }
+                instructions.push(match op {
+                    parser::UnaryOp::BitwiseNot | parser::UnaryOp::Negative | parser::UnaryOp::Negation => Instruction::Unary {
+                        op: match op {
+                            parser::UnaryOp::BitwiseNot => UnaryOp::BitwiseNot,
+                            parser::UnaryOp::Negative => UnaryOp::Negative,
+                            parser::UnaryOp::Negation => UnaryOp::Negation,
+                            _ => unreachable!(),
+                        },
+                        src,
+                        dst,
                     },
-                    src,
-                    dst,
+                    _ => Instruction::Binary {
+                        op: match op {
+                            parser::UnaryOp::PreIncrement | parser::UnaryOp::PostIncrement => BinaryOp::Add,
+                            parser::UnaryOp::PreDecrement | parser::UnaryOp::PostDecrement => BinaryOp::Subtract,
+                            _ => unreachable!(),
+                        },
+                        src1: src,
+                        src2: Val::Constant(1),
+                        dst: src,
+                    },
                 });
                 dst
             }
             parser::Expression::Binary(op, e1, e2) => {
                 let src1 = self.convert_expression(*e1, instructions);
                 let short_circuit = self.lblc;
-                if op == parser::BinaryOp::Conjunction {
+                if let parser::BinaryOp::Conjunction = op {
                     instructions.push(Instruction::JumpIfZero {
                         cond: src1,
                         target: short_circuit,
                     });
                     self.lblc += 1;
-                } else if op == parser::BinaryOp::Disjunction {
+                } else if let parser::BinaryOp::Disjunction = op {
                     instructions.push(Instruction::JumpIfNotZero {
                         cond: src1,
                         target: short_circuit,
@@ -123,61 +161,31 @@ impl Tacker {
                 let src2 = self.convert_expression(*e2, instructions);
                 let dst = Val::Temp(self.tmpc);
                 self.tmpc += 1;
-                if op == parser::BinaryOp::Conjunction {
+                if let parser::BinaryOp::Conjunction = op {
                     instructions.push(Instruction::JumpIfZero {
                         cond: src2,
                         target: short_circuit,
                     });
-                    instructions.push(Instruction::Copy {
-                        src: Val::Constant(1),
-                        dst,
-                    });
+                    instructions.push(Instruction::Copy { src: Val::Constant(1), dst });
                     instructions.push(Instruction::Jump { target: self.lblc });
                     instructions.push(Instruction::Label(short_circuit));
-                    instructions.push(Instruction::Copy {
-                        src: Val::Constant(0),
-                        dst,
-                    });
+                    instructions.push(Instruction::Copy { src: Val::Constant(0), dst });
                     instructions.push(Instruction::Label(self.lblc));
                     self.lblc += 1;
-                } else if op == parser::BinaryOp::Disjunction {
+                } else if let parser::BinaryOp::Disjunction = op {
                     instructions.push(Instruction::JumpIfNotZero {
                         cond: src2,
                         target: short_circuit,
                     });
-                    instructions.push(Instruction::Copy {
-                        src: Val::Constant(0),
-                        dst,
-                    });
+                    instructions.push(Instruction::Copy { src: Val::Constant(0), dst });
                     instructions.push(Instruction::Jump { target: self.lblc });
                     instructions.push(Instruction::Label(short_circuit));
-                    instructions.push(Instruction::Copy {
-                        src: Val::Constant(1),
-                        dst,
-                    });
+                    instructions.push(Instruction::Copy { src: Val::Constant(1), dst });
                     instructions.push(Instruction::Label(self.lblc));
                     self.lblc += 1;
                 } else {
                     instructions.push(Instruction::Binary {
-                        op: match op {
-                            parser::BinaryOp::Add => BinaryOp::Add,
-                            parser::BinaryOp::Subtract => BinaryOp::Subtract,
-                            parser::BinaryOp::Multiply => BinaryOp::Multiply,
-                            parser::BinaryOp::Divide => BinaryOp::Divide,
-                            parser::BinaryOp::Modulo => BinaryOp::Modulo,
-                            parser::BinaryOp::BitwiseAnd => BinaryOp::BitwiseAnd,
-                            parser::BinaryOp::BitwiseOr => BinaryOp::BitwiseOr,
-                            parser::BinaryOp::BitwiseXor => BinaryOp::BitwiseXor,
-                            parser::BinaryOp::BitshiftLeft => BinaryOp::BitshiftLeft,
-                            parser::BinaryOp::BitshiftRight => BinaryOp::BitshiftRight,
-                            parser::BinaryOp::Equal => BinaryOp::Equal,
-                            parser::BinaryOp::NotEqual => BinaryOp::NotEqual,
-                            parser::BinaryOp::Less => BinaryOp::Less,
-                            parser::BinaryOp::LessEqual => BinaryOp::LessEqual,
-                            parser::BinaryOp::Greater => BinaryOp::Greater,
-                            parser::BinaryOp::GreaterEqual => BinaryOp::GreaterEqual,
-                            _ => unreachable!(),
-                        },
+                        op: convert_binop(op),
                         src1,
                         src2,
                         dst,
@@ -185,23 +193,27 @@ impl Tacker {
                 }
                 dst
             }
-            parser::Expression::Assignment(left, right) => {
+            parser::Expression::Assignment(left, right, op) => {
                 let dst = match *left {
                     parser::Expression::Var(name, id) => Val::Local(name, id),
                     _ => unreachable!(),
                 };
                 let src = self.convert_expression(*right, instructions);
-                instructions.push(Instruction::Copy { src, dst });
+                match op {
+                    parser::BinaryOp::Assign => instructions.push(Instruction::Copy { src, dst }),
+                    _ => instructions.push(Instruction::Binary {
+                        op: convert_binop(op),
+                        src1: dst,
+                        src2: src,
+                        dst,
+                    }),
+                }
                 dst
             }
         }
     }
 
-    pub fn convert_block_item<'a>(
-        &mut self,
-        b: parser::BlockItem<'a>,
-        instructions: &mut Vec<Instruction<'a>>,
-    ) {
+    pub fn convert_block_item<'a>(&mut self, b: parser::BlockItem<'a>, instructions: &mut Vec<Instruction<'a>>) {
         match b {
             parser::BlockItem::Decl(parser::Declaration { name, id, init }) => {
                 if let Some(init) = init {

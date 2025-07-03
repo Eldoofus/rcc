@@ -100,11 +100,7 @@ pub fn convert_instructions(is: Vec<tacker::Instruction>) -> Vec<Instruction> {
                 src,
                 dst,
             } => {
-                instructions.push(Instruction::Binary(
-                    BinaryOp::Cmp,
-                    Operand::Imm(0),
-                    convert_val(src),
-                ));
+                instructions.push(Instruction::Binary(BinaryOp::Cmp, Operand::Imm(0), convert_val(src)));
                 instructions.push(Instruction::Mov {
                     src: Operand::Imm(0),
                     dst: convert_val(dst),
@@ -125,12 +121,7 @@ pub fn convert_instructions(is: Vec<tacker::Instruction>) -> Vec<Instruction> {
                     convert_val(dst),
                 ));
             }
-            tacker::Instruction::Binary {
-                op,
-                src1,
-                src2,
-                dst,
-            } => match op {
+            tacker::Instruction::Binary { op, src1, src2, dst } => match op {
                 tacker::BinaryOp::Divide | tacker::BinaryOp::Modulo => {
                     instructions.push(Instruction::Mov {
                         src: convert_val(src1),
@@ -168,11 +159,7 @@ pub fn convert_instructions(is: Vec<tacker::Instruction>) -> Vec<Instruction> {
                 | tacker::BinaryOp::GreaterEqual
                 | tacker::BinaryOp::Less
                 | tacker::BinaryOp::LessEqual => {
-                    instructions.push(Instruction::Binary(
-                        BinaryOp::Cmp,
-                        convert_val(src2),
-                        convert_val(src1),
-                    ));
+                    instructions.push(Instruction::Binary(BinaryOp::Cmp, convert_val(src2), convert_val(src1)));
                     instructions.push(Instruction::Mov {
                         src: Operand::Imm(0),
                         dst: convert_val(dst),
@@ -216,19 +203,11 @@ pub fn convert_instructions(is: Vec<tacker::Instruction>) -> Vec<Instruction> {
             }),
             tacker::Instruction::Jump { target } => instructions.push(Instruction::Jmp(target)),
             tacker::Instruction::JumpIfZero { cond, target } => {
-                instructions.push(Instruction::Binary(
-                    BinaryOp::Cmp,
-                    Operand::Imm(0),
-                    convert_val(cond),
-                ));
+                instructions.push(Instruction::Binary(BinaryOp::Cmp, Operand::Imm(0), convert_val(cond)));
                 instructions.push(Instruction::JmpCC(Condition::E, target));
             }
             tacker::Instruction::JumpIfNotZero { cond, target } => {
-                instructions.push(Instruction::Binary(
-                    BinaryOp::Cmp,
-                    Operand::Imm(0),
-                    convert_val(cond),
-                ));
+                instructions.push(Instruction::Binary(BinaryOp::Cmp, Operand::Imm(0), convert_val(cond)));
                 instructions.push(Instruction::JmpCC(Condition::NE, target));
             }
             tacker::Instruction::Label(l) => instructions.push(Instruction::Label(l)),
@@ -262,9 +241,7 @@ pub fn convert_instructions(is: Vec<tacker::Instruction>) -> Vec<Instruction> {
             },
             Instruction::Unary(op, dst) => Instruction::Unary(op, replace(dst)),
             Instruction::Shift(op, src, dst) => Instruction::Shift(op, replace(src), replace(dst)),
-            Instruction::Binary(op, src, dst) => {
-                Instruction::Binary(op, replace(src), replace(dst))
-            }
+            Instruction::Binary(op, src, dst) => Instruction::Binary(op, replace(src), replace(dst)),
             Instruction::Div(div) => Instruction::Div(replace(div)),
             Instruction::SetCC(cond, dst) => Instruction::SetCC(cond, replace(dst)),
             _ => i,
@@ -294,11 +271,7 @@ pub fn convert_instructions(is: Vec<tacker::Instruction>) -> Vec<Instruction> {
                 src,
                 dst: Operand::Register(Register::RCX),
             });
-            instructions.push(Instruction::Shift(
-                op,
-                Operand::Register(Register::RCX),
-                dst,
-            ));
+            instructions.push(Instruction::Shift(op, Operand::Register(Register::RCX), dst));
         } else if let Instruction::Binary(BinaryOp::Cmp, src, dst) = i
             && let Operand::Imm(_) = dst
         {
@@ -306,11 +279,7 @@ pub fn convert_instructions(is: Vec<tacker::Instruction>) -> Vec<Instruction> {
                 src: dst,
                 dst: Operand::Register(Register::R11),
             });
-            instructions.push(Instruction::Binary(
-                BinaryOp::Cmp,
-                src,
-                Operand::Register(Register::R11),
-            ));
+            instructions.push(Instruction::Binary(BinaryOp::Cmp, src, Operand::Register(Register::R11)));
         } else if let Instruction::Binary(BinaryOp::Mul, src, dst) = i
             && let Operand::Stack(_) = dst
         {
@@ -318,11 +287,7 @@ pub fn convert_instructions(is: Vec<tacker::Instruction>) -> Vec<Instruction> {
                 src: dst,
                 dst: Operand::Register(Register::R11),
             });
-            instructions.push(Instruction::Binary(
-                BinaryOp::Mul,
-                src,
-                Operand::Register(Register::R11),
-            ));
+            instructions.push(Instruction::Binary(BinaryOp::Mul, src, Operand::Register(Register::R11)));
             instructions.push(Instruction::Mov {
                 src: Operand::Register(Register::R11),
                 dst: dst,
@@ -335,11 +300,7 @@ pub fn convert_instructions(is: Vec<tacker::Instruction>) -> Vec<Instruction> {
                 src,
                 dst: Operand::Register(Register::R10),
             });
-            instructions.push(Instruction::Binary(
-                op,
-                Operand::Register(Register::R10),
-                dst,
-            ));
+            instructions.push(Instruction::Binary(op, Operand::Register(Register::R10), dst));
         } else if let Instruction::Div(div) = i
             && let Operand::Imm(_) = div
         {
@@ -474,11 +435,7 @@ impl fmt::Display for Instruction {
 impl<'a> fmt::Display for Function<'a> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let Function { name, instructions } = self;
-        writeln!(
-            f,
-            "\t.globl\t{}\n{0}:\n\tpushq\t%rbp\n\tmovq\t%rsp, %rbp",
-            name
-        )?;
+        writeln!(f, "\t.globl\t{}\n{0}:\n\tpushq\t%rbp\n\tmovq\t%rsp, %rbp", name)?;
         for i in instructions {
             writeln!(f, "\t{}", i)?;
         }

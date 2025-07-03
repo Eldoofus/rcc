@@ -7,6 +7,10 @@ pub enum UnaryOp {
     BitwiseNot,
     Negative,
     Negation,
+    PreIncrement,
+    PreDecrement,
+    PostIncrement,
+    PostDecrement,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -38,7 +42,7 @@ pub enum Expression<'a> {
     Var(&'a str, u32),
     Unary(UnaryOp, Box<Expression<'a>>),
     Binary(BinaryOp, Box<Expression<'a>>, Box<Expression<'a>>),
-    Assignment(Box<Expression<'a>>, Box<Expression<'a>>),
+    Assignment(Box<Expression<'a>>, Box<Expression<'a>>, BinaryOp),
 }
 
 #[derive(Debug)]
@@ -79,6 +83,8 @@ pub struct TokenStream<'a> {
 pub fn parse_unaryop(t: Token) -> Result<UnaryOp, String> {
     return Ok(match t {
         Token::Tilde => UnaryOp::BitwiseNot,
+        Token::DoublePlus => UnaryOp::PreIncrement,
+        Token::DoubleMinus => UnaryOp::PreDecrement,
         Token::Minus => UnaryOp::Negative,
         Token::Bang => UnaryOp::Negation,
         _ => Err(format!("Expected Unary Operator, but found {:?}", t))?,
@@ -99,7 +105,17 @@ pub fn parse_binaryop(t: Token) -> Result<BinaryOp, String> {
         Token::DoubleRightChevron => BinaryOp::BitshiftRight,
         Token::DoubleAmpersand => BinaryOp::Conjunction,
         Token::DoublePipe => BinaryOp::Disjunction,
-        Token::Equal => BinaryOp::Assign,
+        Token::Equal
+        | Token::PlusEqual
+        | Token::MinusEqual
+        | Token::StarEqual
+        | Token::SlashEqual
+        | Token::PercentEqual
+        | Token::AmpersandEqual
+        | Token::PipeEqual
+        | Token::CaratEqual
+        | Token::DoubleLeftChevronEqual
+        | Token::DoubleRightChevronEqual => BinaryOp::Assign,
         Token::DoubleEqual => BinaryOp::Equal,
         Token::BangEqual => BinaryOp::NotEqual,
         Token::LeftChevron => BinaryOp::Less,
@@ -107,6 +123,23 @@ pub fn parse_binaryop(t: Token) -> Result<BinaryOp, String> {
         Token::RightChevron => BinaryOp::Greater,
         Token::RightChevronEqual => BinaryOp::GreaterEqual,
         _ => Err(format!("Expected Binary Operator, but found {:?}", t))?,
+    });
+}
+
+pub fn parse_assign(t: Token) -> Result<BinaryOp, String> {
+    return Ok(match t {
+        Token::Equal => BinaryOp::Assign,
+        Token::PlusEqual => BinaryOp::Add,
+        Token::MinusEqual => BinaryOp::Subtract,
+        Token::StarEqual => BinaryOp::Multiply,
+        Token::SlashEqual => BinaryOp::Divide,
+        Token::PercentEqual => BinaryOp::Modulo,
+        Token::AmpersandEqual => BinaryOp::BitwiseAnd,
+        Token::PipeEqual => BinaryOp::BitwiseOr,
+        Token::CaratEqual => BinaryOp::BitwiseXor,
+        Token::DoubleLeftChevronEqual => BinaryOp::BitshiftLeft,
+        Token::DoubleRightChevronEqual => BinaryOp::BitshiftRight,
+        _ => Err(format!("Expected Assignment Operator, but found {:?}", t))?,
     });
 }
 
@@ -125,6 +158,16 @@ pub fn is_binaryop(t: Token) -> bool {
         | Token::DoubleAmpersand
         | Token::DoublePipe
         | Token::Equal
+        | Token::PlusEqual
+        | Token::MinusEqual
+        | Token::StarEqual
+        | Token::SlashEqual
+        | Token::PercentEqual
+        | Token::AmpersandEqual
+        | Token::PipeEqual
+        | Token::CaratEqual
+        | Token::DoubleLeftChevronEqual
+        | Token::DoubleRightChevronEqual
         | Token::DoubleEqual
         | Token::BangEqual
         | Token::LeftChevron
@@ -163,10 +206,7 @@ impl<'a> TokenStream<'a> {
             self.tokens = &self.tokens[1..];
             return Ok(self);
         } else {
-            return Err(format!(
-                "Expected token: {:?}, but found {:?}",
-                t, self.tokens[0]
-            ));
+            return Err(format!("Expected token: {:?}, but found {:?}", t, self.tokens[0]));
         }
     }
 
@@ -181,21 +221,36 @@ impl<'a> TokenStream<'a> {
 
     pub fn parse_factor(&mut self) -> Result<Expression<'a>, String> {
         let t = self.take();
-        return Ok(match t {
+        let f = match t {
             Token::Constant(c) => Expression::Constant(c),
             Token::Identifier(n) => match self.var_map.get(n) {
                 Some(&id) => Expression::Var(n, id),
                 None => return Err(format!("Use of undeclared identifier '{}'", n)),
             },
-            Token::Tilde | Token::Minus | Token::Bang => {
-                Expression::Unary(parse_unaryop(t)?, Box::new(self.parse_factor()?))
-            }
+            Token::Tilde | Token::DoublePlus | Token::DoubleMinus | Token::Minus | Token::Bang => match (t, self.parse_factor()?) {
+                (_, f @ Expression::Var(_, _)) => Expression::Unary(parse_unaryop(t)?, Box::new(f)),
+                (Token::DoublePlus | Token::DoubleMinus, _) => return Err(format!("Expected lvalue")),
+                (_, f) => Expression::Unary(parse_unaryop(t)?, Box::new(f)),
+            },
             Token::OpenParenthesis => {
                 let inner = self.parse_expression(0)?;
                 self.expect(Token::CloseParenthesis)?;
                 inner
             }
             _ => return Err(format!("Expected expression, but found {:?}", t)),
+        };
+
+        return Ok(match (self.tokens[0], f) {
+            (Token::DoublePlus | Token::DoubleMinus, f @ Expression::Var(_, _)) => Expression::Unary(
+                match self.take() {
+                    Token::DoublePlus => UnaryOp::PostIncrement,
+                    Token::DoubleMinus => UnaryOp::PostDecrement,
+                    _ => unreachable!(),
+                },
+                Box::new(f),
+            ),
+            (Token::DoublePlus | Token::DoubleMinus, _) => return Err(format!("Expected lvalue")),
+            (_, f) => f,
         });
     }
 
@@ -206,18 +261,23 @@ impl<'a> TokenStream<'a> {
             t = self.take();
             let op = parse_binaryop(t)?;
             left = match t {
-                Token::Equal => match left {
-                    Expression::Var(_, _) => Expression::Assignment(
-                        Box::new(left),
-                        Box::new(self.parse_expression(precedence(op))?),
-                    ),
+                Token::Equal
+                | Token::PlusEqual
+                | Token::MinusEqual
+                | Token::StarEqual
+                | Token::SlashEqual
+                | Token::PercentEqual
+                | Token::AmpersandEqual
+                | Token::PipeEqual
+                | Token::CaratEqual
+                | Token::DoubleLeftChevronEqual
+                | Token::DoubleRightChevronEqual => match left {
+                    Expression::Var(_, _) => {
+                        Expression::Assignment(Box::new(left), Box::new(self.parse_expression(precedence(op))?), parse_assign(t)?)
+                    }
                     _ => return Err(format!("Left hand side of assignment must be an lvalue")),
                 },
-                _ => Expression::Binary(
-                    op,
-                    Box::new(left),
-                    Box::new(self.parse_expression(precedence(op) + 1)?),
-                ),
+                _ => Expression::Binary(op, Box::new(left), Box::new(self.parse_expression(precedence(op) + 1)?)),
             };
             t = self.tokens[0];
         }
@@ -241,17 +301,12 @@ impl<'a> TokenStream<'a> {
                         Token::Equal => Some(self.expect(Token::Equal)?.parse_expression(0)?),
                         Token::Semicolon => None,
                         _ => {
-                            return Err(format!(
-                                "Expected semicolon or initialiser, but found {:?}",
-                                t
-                            ));
+                            return Err(format!("Expected semicolon or initialiser, but found {:?}", t));
                         }
                     },
                 })
             }
-            Token::Return => BlockItem::Stmt(Statement::Return(
-                self.expect(Token::Return)?.parse_expression(0)?,
-            )),
+            Token::Return => BlockItem::Stmt(Statement::Return(self.expect(Token::Return)?.parse_expression(0)?)),
             Token::Semicolon => {
                 self.expect(Token::Semicolon)?;
                 return Ok(BlockItem::Stmt(Statement::Null));
