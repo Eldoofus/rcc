@@ -1,23 +1,24 @@
-pub mod emitter;
-pub mod lexer;
-pub mod parser;
-pub mod tacker;
+#![feature(map_try_insert)]
 
-use std::collections::HashMap;
+pub mod compiler;
+pub mod assembler; /* TODO Refactor */
+
 use std::io::Write;
 use std::{env, fs, path::Path, process::Command};
 
 #[test]
-fn test() -> Result<(), String> {
+fn astest() -> Result<(), String> {
+    use std::{fs, path::Path, process::Command, io::Write};
     for i in 1.. {
         let chapter = &format!("./tests/chapter_{}", i);
         let chapter = Path::new(chapter);
         if chapter.try_exists().unwrap_or(false) {
             for set in fs::read_dir(chapter).unwrap() {
                 let set = set.unwrap();
+                if set.file_name() != "valid" {
+                    continue;
+                }
                 for file in fs::read_dir(set.path()).unwrap() {
-                    let set = set.file_name();
-                    let set = set.to_str().unwrap();
                     let file = file.unwrap().path();
                     let file = file.as_path();
 
@@ -36,35 +37,20 @@ fn test() -> Result<(), String> {
                             .arg(file.with_extension("i"))
                             .status()
                             .expect("Failed to remove temporary files");
-                        let tokens = lexer::lex(program.as_str());
-                        if set == "invalid_lex" {
-                            assert!(tokens.is_err());
-                            return;
-                        }
-                        let mut tkstream = parser::TokenStream {
-                            tokens: &tokens.unwrap(),
-                            varc: 1,
-                            var_map: HashMap::new(),
-                        };
-                        let ast = tkstream.parse();
-                        if set == "invalid_parse" || set == "invalid_semantics" {
-                            assert!(ast.is_err());
-                            return;
-                        }
-                        let tacky = tacker::Tacker {
-                            tmpc: tkstream.varc,
-                            lblc: 1,
-                        }
-                        .convert(ast.unwrap());
-                        let asm = emitter::convert(tacky);
-                        let mut output = fs::File::create(file.with_extension("s")).expect("Could not create output file");
-                        writeln!(&mut output, "{}", &asm).unwrap();
+                        let asm = compiler::compile(program.as_str());
+                        // let mut output: Vec<u8> = Vec::new();
+                        // writeln!(output, "{}", &asm).unwrap();
+                        // let output = String::from_utf8(output).unwrap();
+                        let obj = assembler::assemble(&format!("{}", &asm));
+                        fs::write(file.with_extension("o"), obj).unwrap();
+
                         Command::new("gcc")
-                            .arg(file.with_extension("s"))
+                            .arg(file.with_extension("o"))
                             .arg("-o")
                             .arg(file.with_extension(""))
                             .status()
                             .expect("Failed to execute gcc");
+
                         let status = Command::new(file.with_extension("")).status().unwrap();
                         Command::new("gcc")
                             .arg(file)
@@ -74,7 +60,7 @@ fn test() -> Result<(), String> {
                             .expect("Failed to execute gcc");
                         let expected = Command::new(file.with_extension("")).status().unwrap();
                         Command::new("rm")
-                            .arg(file.with_extension("s"))
+                            .arg(file.with_extension("o"))
                             .arg(file.with_extension(""))
                             .status()
                             .expect("Failed to remove temporary files");
@@ -120,32 +106,8 @@ fn main() {
                 .status()
                 .expect("Failed to execute gcc");
             let file = fs::read_to_string(path.with_extension("i")).expect("Cannot read file");
-            let tokens: &[lexer::Token] = &lexer::lex(file.as_str()).unwrap();
-            let mut tkstream = parser::TokenStream {
-                tokens,
-                varc: 1,
-                var_map: HashMap::new(),
-            };
 
-            println!("{}", file.as_str());
-
-            for token in tokens {
-                println!("{:?}", &token);
-            }
-
-            let ast = tkstream.parse().unwrap();
-            println!("\n{:?}", &ast);
-
-            let tacky = tacker::Tacker {
-                tmpc: tkstream.varc,
-                lblc: 1,
-            }
-            .convert(ast);
-            println!("\n{:?}", &tacky);
-
-            let asm = emitter::convert(tacky);
-            println!("\n{:?}", &asm);
-            println!("\n{}", &asm);
+            let asm = compiler::compile_dbg(file.as_str());
 
             let mut file = fs::File::create(path.with_extension("s")).expect("Could not create output file");
             writeln!(&mut file, "{}", &asm).unwrap();
@@ -170,7 +132,41 @@ fn main() {
         } else {
             println!("Invalid file path");
         }
+    } else if let Some(ext) = path.extension()
+        && ext == "s"
+    {
+        if path.try_exists().unwrap_or(false) {
+            let file = fs::read_to_string(path).expect("Cannot read file");
+            let obj = assembler::assemble(&file);
+
+            fs::File::create(path.with_extension("o")).expect("Could not create output file").write(&obj).expect("Unable to write to output file");
+
+            Command::new("objdump")
+                .arg("-d")
+                .arg(path.with_extension("o"))
+                .status()
+                .expect("Failed to dump object file");
+
+            Command::new("gcc")
+                .arg(path.with_extension("o"))
+                .arg("-o")
+                .arg(path.with_extension(""))
+                .status()
+                .expect("Failed to execute gcc");
+
+            let status = Command::new(path.with_extension("")).status().unwrap();
+
+            println!("Program returned: {}", status.code().unwrap_or(-1));
+
+            Command::new("rm")
+                .arg(path.with_extension("o"))
+                .arg(path.with_extension(""))
+                .status()
+                .expect("Failed to remove temp files");
+        } else {
+            println!("Invalid file path");
+        }
     } else {
-        println!("Invalid file type: expected *.c");
+        println!("Invalid file type: expected *.c or *.s");
     }
 }
