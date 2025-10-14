@@ -7,7 +7,7 @@ use std::collections::HashMap;
 
 #[test]
 fn ctest() -> Result<(), String> {
-    use std::{fs, path::Path, process::Command, io::Write};
+    use std::{fs, io::Write, path::Path, process::Command};
     for i in 1.. {
         let chapter = &format!("./tests/chapter_{}", i);
         let chapter = Path::new(chapter);

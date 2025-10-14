@@ -1,14 +1,14 @@
 #![feature(map_try_insert)]
 
-pub mod compiler;
-pub mod assembler; /* TODO Refactor */
+pub mod assembler;
+pub mod compiler; /* TODO Refactor */
 
 use std::io::Write;
 use std::{env, fs, path::Path, process::Command};
 
 #[test]
 fn astest() -> Result<(), String> {
-    use std::{fs, path::Path, process::Command, io::Write};
+    use std::{fs, path::Path, process::Command};
     for i in 1.. {
         let chapter = &format!("./tests/chapter_{}", i);
         let chapter = Path::new(chapter);
@@ -139,7 +139,10 @@ fn main() {
             let file = fs::read_to_string(path).expect("Cannot read file");
             let obj = assembler::assemble(&file);
 
-            fs::File::create(path.with_extension("o")).expect("Could not create output file").write(&obj).expect("Unable to write to output file");
+            fs::File::create(path.with_extension("o"))
+                .expect("Could not create output file")
+                .write(&obj)
+                .expect("Unable to write to output file");
 
             Command::new("objdump")
                 .arg("-d")
