@@ -51,20 +51,22 @@ fn astest() -> Result<(), String> {
                             .status()
                             .expect("Failed to execute gcc");
 
-                        let status = Command::new(file.with_extension("")).status().unwrap();
+                        let status = Command::new(file.with_extension("")).status().unwrap().code().unwrap_or(-1);
                         Command::new("gcc")
                             .arg(file)
                             .arg("-o")
                             .arg(file.with_extension(""))
                             .status()
                             .expect("Failed to execute gcc");
-                        let expected = Command::new(file.with_extension("")).status().unwrap();
+                        let expected = Command::new(file.with_extension("")).status().unwrap().code().unwrap_or(-1);
                         Command::new("rm")
                             .arg(file.with_extension("o"))
                             .arg(file.with_extension(""))
                             .status()
                             .expect("Failed to remove temporary files");
-                        assert_eq!(status.code().unwrap_or(-1), expected.code().unwrap_or(-1));
+                        if status != expected {
+                            panic!("Program returned: {}\n        Expected: {}\n\n{}", status, expected, &asm);
+                        }
                     };
 
                     if file.is_dir() {

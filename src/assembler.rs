@@ -8,6 +8,7 @@ pub enum Width {
     Word,
     Long,
     Quad,
+    Null,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -33,13 +34,25 @@ pub enum Register {
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Mnemonic {
+    ADD,
+    OR,
+    ADC,
+    SBB,
+    AND,
+    SUB,
+    XOR,
+    CMP,
+    CQO,
+    IDIV,
+    IMUL,
     MOV,
     NEG,
     NOT,
     POP,
     PUSH,
     RET,
-    SUB,
+    SAL,
+    SAR,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -62,14 +75,26 @@ pub fn lex<'a>(input: &'a str) -> (Vec<Token<'a>>, Vec<&'a str>, Vec<&'a str>) {
     use Register::*;
     use Width::*;
 
-    let mnemonics = [
+    let s_mnemonics = [
+        (ADD, r(r"^add[blqw]$")),
+        (AND, r(r"^and[blqw]$")),
+        (IDIV, r(r"^idiv[blqw]$")),
+        (IMUL, r(r"^imul[blqw]$")),
         (MOV, r(r"^mov[blqw]$")),
         (NEG, r(r"^neg[blqw]$")),
         (NOT, r(r"^not[blqw]$")),
+        (OR, r(r"^or[blqw]$")),
         (POP, r(r"^pop[qw]$")),
         (PUSH, r(r"^push[qw]$")),
         (RET, r(r"^ret[qw]$")),
+        (SAL, r(r"^sal[blqw]$")),
+        (SAR, r(r"^sar[blqw]$")),
         (SUB, r(r"^sub[blqw]$")),
+        (XOR, r(r"^xor[blqw]$")),
+    ];
+
+    let u_mnemonics = [
+        (CQO, r("^cqo$")),
     ];
 
     let regs = [
@@ -124,7 +149,7 @@ pub fn lex<'a>(input: &'a str) -> (Vec<Token<'a>>, Vec<&'a str>, Vec<&'a str>) {
             sections.push(args[0]);
         } else if constant.is_match(s) {
             tokens.push(Token::Constant(s[1..].parse().unwrap()));
-        } else if let Some((m, _)) = mnemonics.iter().find(|(_, r)| r.is_match(s)) {
+        } else if let Some((m, _)) = s_mnemonics.iter().find(|(_, r)| r.is_match(s)) {
             tokens.push(Token::Mnemonic(
                 *m,
                 match s.chars().last().unwrap() {
@@ -133,8 +158,10 @@ pub fn lex<'a>(input: &'a str) -> (Vec<Token<'a>>, Vec<&'a str>, Vec<&'a str>) {
                     'l' => Long,
                     'q' => Quad,
                     _ => unreachable!(),
-                },
+                }
             ));
+        } else if let Some((m, _)) = u_mnemonics.iter().find(|(_, r)| r.is_match(s)) {
+            tokens.push(Token::Mnemonic(*m, Null));
         } else if let Some((r, w)) = reg(s) {
             tokens.push(Token::Register(r, w));
         } else if let Some(c) = sib.captures(s) {
@@ -223,31 +250,55 @@ pub fn parse<'a>(mut tokens: &[Token<'a>]) -> (Vec<u8>, HashMap<&'a str, usize>)
     use Mnemonic::*;
     use Register::*;
     use Width::*;
-    // dbg!(&tokens);
+
+    let regs = [RAX, RCX, RDX, RBX, RSP, RBP, RSI, RDI, R8, R9, R10, R11, R12, R13, R14, R15];
+
     let mut bytecode: Vec<u8> = Vec::new();
     let mut labels: HashMap<&str, usize> = HashMap::new();
 
     while tokens[0] != Token::EOF {
         use Token::*;
-        if let Mnemonic(MOV, w) = tokens[0] {
+        if let Mnemonic(CQO, Null) = tokens[0] {
+            bytecode.push(0x48);
+            bytecode.push(0x99);
+        } else if let Mnemonic(IDIV, w) = tokens[0] {
+            if let Register(reg, rw) = tokens[1] && rw == w {
+                pref(&mut bytecode, RAX, reg, RAX, w);
+                bytecode.push(if w == Byte { 0xf6 } else { 0xf7 });
+                bytecode.push(0xc0 + RDI as u8 * 8 + reg as u8 % 8);
+            }
+        } else if let Mnemonic(IMUL, w) = tokens[0] {
+            if let SIB(disp, base, index, scale, rw) = tokens[1] && rw == w && w != Byte {
+                if let Register(reg, rw) = tokens[2] && rw == w {
+                    pref(&mut bytecode, reg, base.unwrap_or(RAX), index.unwrap_or(RAX), w);
+                    bytecode.push(0x0f);
+                    bytecode.push(0xaf);
+                    sib(&mut bytecode, reg, disp, base, index, scale);
+                }
+            } else if let Constant(i) = tokens[1] && w != Byte {
+                if let Register(reg, rw) = tokens[2] && rw == w {
+                    pref(&mut bytecode, reg, reg, RAX, w);
+                    bytecode.push(0x69);
+                    bytecode.push(0xc0 + reg as u8 % 8 * 9);
+                    bytecode.extend(&i.to_le_bytes()[0..1 << min(w as u8, 2)]);
+                }
+            }
+        } else if let Mnemonic(MOV, w) = tokens[0] {
             if let SIB(disp, base, index, scale, rw) = tokens[1] && rw == w {
                 if let Register(reg, rw) = tokens[2] && rw == w {
                     pref(&mut bytecode, reg, base.unwrap_or(RAX), index.unwrap_or(RAX), w);
                     bytecode.push(0x8b);
                     sib(&mut bytecode, reg, disp, base, index, scale);
-                    tokens = &tokens[2..];
                 }
             } else if let Register(src, rw) = tokens[1] && rw == w {
                 if let SIB(disp, base, index, scale, rw) = tokens[2] && rw == w {
                     pref(&mut bytecode, src, base.unwrap_or(RAX), index.unwrap_or(RAX), w);
                     bytecode.push(0x89);
                     sib(&mut bytecode, src, disp, base, index, scale);
-                    tokens = &tokens[2..];
                 } else if let Register(dst, rw) = tokens[2] && rw == w {
                     pref(&mut bytecode, src, dst, RAX, w);
                     bytecode.push(if w == Byte { 0x88 } else { 0x89 });
                     bytecode.push(0xc0 + src as u8 % 8 * 8 + dst as u8 % 8);
-                    tokens = &tokens[2..];
                 }
             } else if let Constant(i) = tokens[1] {
                 if let SIB(disp, base, index, scale, rw) = tokens[2] && rw == w {
@@ -255,12 +306,10 @@ pub fn parse<'a>(mut tokens: &[Token<'a>]) -> (Vec<u8>, HashMap<&'a str, usize>)
                     bytecode.push(0xc7);
                     sib(&mut bytecode, RAX, disp, base, index, scale);
                     bytecode.extend(&i.to_le_bytes()[0..1 << min(w as u8, 2)]);
-                    tokens = &tokens[2..];
                 } else if let Register(dst, rw) = tokens[2] && rw == w {
                     pref(&mut bytecode, RAX, dst, RAX, w);
                     bytecode.push(if w == Byte { 0xb0 } else { 0xb8 } + dst as u8 % 8);
                     bytecode.extend(&i.to_le_bytes()[0..1 << w as u8]);
-                    tokens = &tokens[2..];
                 }
             }
         } else if let Mnemonic(NEG, w) = tokens[0] {
@@ -279,25 +328,57 @@ pub fn parse<'a>(mut tokens: &[Token<'a>]) -> (Vec<u8>, HashMap<&'a str, usize>)
             if let Register(dst, rw) = tokens[1] && rw == w {
                 pref(&mut bytecode, RAX, dst, RAX, if w == Quad { Long } else { w });
                 bytecode.push(0x58 + dst as u8 % 8);
-                tokens = &tokens[1..];
             }
         } else if let Mnemonic(PUSH, w) = tokens[0] {
             if let Register(dst, rw) = tokens[1] && rw == w {
                 pref(&mut bytecode, RAX, dst, RAX, if w == Quad { Long } else { w });
                 bytecode.push(0x50 + dst as u8 % 8);
-                tokens = &tokens[1..];
             }
         } else if let Mnemonic(RET, Quad) = tokens[0] {
             bytecode.push(0xc3); //safe?
-        } else if let Mnemonic(SUB, w) = tokens[0] {
-            if let Constant(i) = tokens[1] {
-                if let Register(dst, rw) = tokens[2] && rw == w {
+        } else if let Mnemonic(m @ (SAL | SAR), w) = tokens[0] {
+            if let Register(RCX, Byte) = tokens[1] {
+                if let SIB(disp, base, index, scale, rw) = tokens[2] && rw == w {
+                    pref(&mut bytecode, RAX, base.unwrap_or(RAX), index.unwrap_or(RAX), w);
+                    bytecode.push(if w == Byte { 0xd2 } else { 0xd3 });
+                    sib(&mut bytecode, if m == SAL { RSP } else { RDI }, disp, base, index, scale);
+                }
+            } else if let Constant(i) = tokens[1] {
+                if let SIB(disp, base, index, scale, rw) = tokens[2] && rw == w {
+                    pref(&mut bytecode, RAX, base.unwrap_or(RAX), index.unwrap_or(RAX), w);
+                    bytecode.push(if w == Byte { 0xc0 } else { 0xc1 });
+                    sib(&mut bytecode, if m == SAL { RSP } else { RDI }, disp, base, index, scale);
+                    bytecode.push(i.to_le_bytes()[0]);
+                }
+            }
+        } else if let Mnemonic(m @ (ADD | SUB | AND | OR | XOR), w) = tokens[0] {
+            if let SIB(disp, base, index, scale, rw) = tokens[1] && rw == w {
+                if let Register(reg, rw) = tokens[2] && rw == w {
+                    pref(&mut bytecode, reg, base.unwrap_or(RAX), index.unwrap_or(RAX), w);
+                    bytecode.push(m as u8 * 8 + 3);
+                    sib(&mut bytecode, reg, disp, base, index, scale);
+                }
+            } else if let Register(src, rw) = tokens[1] && rw == w {
+                if let SIB(disp, base, index, scale, rw) = tokens[2] && rw == w {
+                    pref(&mut bytecode, src, base.unwrap_or(RAX), index.unwrap_or(RAX), w);
+                    bytecode.push(m as u8 * 8 + 1);
+                    sib(&mut bytecode, src, disp, base, index, scale);
+                } else if let Register(dst, rw) = tokens[2] && rw == w {
+                    pref(&mut bytecode, src, dst, RAX, w);
+                    bytecode.push(m as u8 * 8 + if w == Byte { 0 } else { 1 });
+                    bytecode.push(0xc0 + src as u8 % 8 * 8 + dst as u8 % 8);
+                }
+            } else if let Constant(i) = tokens[1] {
+                if let SIB(disp, base, index, scale, rw) = tokens[2] && rw == w {
+                    pref(&mut bytecode, RAX, base.unwrap_or(RAX), index.unwrap_or(RAX), w);
+                    bytecode.push(0x81);
+                    sib(&mut bytecode, regs[m as usize], disp, base, index, scale);
+                } else if let Register(dst, rw) = tokens[2] && rw == w {
                     pref(&mut bytecode, RAX, dst, RAX, w);
                     bytecode.push(if w == Byte { 0x80 } else { 0x81 });
-                    bytecode.push(0xe8 + dst as u8 % 8);
-                    bytecode.extend(&i.to_le_bytes()[0..1 << min(w as u8, 2)]);
-                    tokens = &tokens[2..];
+                    bytecode.push(0xc0 + m as u8 * 8 + dst as u8 % 8);
                 }
+                bytecode.extend(&i.to_le_bytes()[0..1 << min(w as u8, 2)]);
             }
         } else if let LabelDef(label) = tokens[0] {
             labels.try_insert(label, bytecode.len()).expect("Duplicate Label Definition");
