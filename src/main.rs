@@ -1,5 +1,3 @@
-#![feature(map_try_insert)]
-
 pub mod assembler;
 pub mod compiler; /* TODO Refactor */
 
@@ -148,6 +146,7 @@ fn main() {
 
             Command::new("objdump")
                 .arg("-d")
+                .arg("--insn-width=11")
                 .arg(path.with_extension("o"))
                 .status()
                 .expect("Failed to dump object file");

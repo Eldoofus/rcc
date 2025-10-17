@@ -416,18 +416,18 @@ impl fmt::Display for BinaryOp {
 impl fmt::Display for Instruction {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            Instruction::Mov { src, dst } => write!(f, "movq\t{}, {}", src, dst),
-            Instruction::Unary(op, dst) => write!(f, "{}\t{}", op, dst),
-            Instruction::Shift(op, src, dst) => write!(f, "{}\t{:1}, {}", op, src, dst),
-            Instruction::Binary(op, src, dst) => write!(f, "{}\t{}, {}", op, src, dst),
-            Instruction::Div(div) => write!(f, "idivq\t{}", div),
-            Instruction::Cqo => write!(f, "cqo"),
-            Instruction::AllocateStack(offset) => write!(f, "subq\t${}, %rsp", offset),
-            Instruction::Jmp(l) => write!(f, "jmp\t.L{}", l),
-            Instruction::JmpCC(cc, l) => write!(f, "j{}\t.L{}", cc, l),
-            Instruction::SetCC(cc, l) => write!(f, "set{}\t{:1}", cc, l),
-            Instruction::Label(l) => write!(f, "\r.L{}:", l),
-            Instruction::Ret => write!(f, "movq\t%rbp, %rsp\n\tpopq\t%rbp\n\tretq"),
+            Instruction::Mov { src, dst } => write!(f, "\tmovq\t{}, {}", src, dst),
+            Instruction::Unary(op, dst) => write!(f, "\t{}\t{}", op, dst),
+            Instruction::Shift(op, src, dst) => write!(f, "\t{}\t{:1}, {}", op, src, dst),
+            Instruction::Binary(op, src, dst) => write!(f, "\t{}\t{}, {}", op, src, dst),
+            Instruction::Div(div) => write!(f, "\tidivq\t{}", div),
+            Instruction::Cqo => write!(f, "\tcqo"),
+            Instruction::AllocateStack(offset) => write!(f, "\tsubq\t${}, %rsp", offset),
+            Instruction::Jmp(l) => write!(f, "\tjmp\t.L{}", l),
+            Instruction::JmpCC(cc, l) => write!(f, "\tj{}\t.L{}", cc, l),
+            Instruction::SetCC(cc, l) => write!(f, "\tset{}\t{:1}", cc, l),
+            Instruction::Label(l) => write!(f, ".L{}:", l),
+            Instruction::Ret => write!(f, "\tmovq\t%rbp, %rsp\n\tpopq\t%rbp\n\tretq"),
         }
     }
 }
@@ -437,7 +437,7 @@ impl<'a> fmt::Display for Function<'a> {
         let Function { name, instructions } = self;
         writeln!(f, "\t.globl\t{}\n{0}:\n\tpushq\t%rbp\n\tmovq\t%rsp, %rbp", name)?;
         for i in instructions {
-            writeln!(f, "\t{}", i)?;
+            writeln!(f, "{}", i)?;
         }
         Ok(())
     }
