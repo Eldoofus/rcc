@@ -34,6 +34,7 @@ pub enum BinaryOp {
     Greater,
     GreaterEqual,
     Assign,
+    ConditionalMiddle, // i hate this
 }
 
 #[derive(Debug)]
@@ -43,6 +44,7 @@ pub enum Expression<'a> {
     Unary(UnaryOp, Box<Expression<'a>>),
     Binary(BinaryOp, Box<Expression<'a>>, Box<Expression<'a>>),
     Assignment(Box<Expression<'a>>, Box<Expression<'a>>, BinaryOp),
+    Conditional(Box<Expression<'a>>, Box<Expression<'a>>, Box<Expression<'a>>),
 }
 
 #[derive(Debug)]
@@ -56,6 +58,7 @@ pub struct Declaration<'a> {
 pub enum Statement<'a> {
     Return(Expression<'a>),
     Expression(Expression<'a>),
+    If(Expression<'a>, Box<Statement<'a>>, Option<Box<Statement<'a>>>),
     Null,
 }
 
@@ -122,6 +125,7 @@ pub fn parse_binaryop(t: Token) -> Result<BinaryOp, String> {
         Token::LeftChevronEqual => BinaryOp::LessEqual,
         Token::RightChevron => BinaryOp::Greater,
         Token::RightChevronEqual => BinaryOp::GreaterEqual,
+        Token::QuestionMark => BinaryOp::ConditionalMiddle,
         _ => Err(format!("Expected Binary Operator, but found {:?}", t))?,
     });
 }
@@ -173,7 +177,8 @@ pub fn is_binaryop(t: Token) -> bool {
         | Token::LeftChevron
         | Token::LeftChevronEqual
         | Token::RightChevron
-        | Token::RightChevronEqual => true,
+        | Token::RightChevronEqual
+        | Token::QuestionMark => true,
         _ => false,
     };
 }
@@ -190,6 +195,7 @@ pub fn precedence(op: BinaryOp) -> i32 {
         BinaryOp::BitwiseOr => 6,
         BinaryOp::Conjunction => 5,
         BinaryOp::Disjunction => 4,
+        BinaryOp::ConditionalMiddle => 3,
         BinaryOp::Assign => 2,
     };
 }
@@ -277,6 +283,11 @@ impl<'a> TokenStream<'a> {
                     }
                     _ => return Err(format!("Left hand side of assignment must be an lvalue")),
                 },
+                Token::QuestionMark => Expression::Conditional(
+                    Box::new(left),
+                    Box::new(self.parse_expression(0)?),
+                    Box::new(self.expect(Token::Colon)?.parse_expression(precedence(op))?),
+                ),
                 _ => Expression::Binary(op, Box::new(left), Box::new(self.parse_expression(precedence(op) + 1)?)),
             };
             t = self.tokens[0];
@@ -284,9 +295,28 @@ impl<'a> TokenStream<'a> {
         return Ok(left);
     }
 
+    pub fn parse_statement(&mut self) -> Result<Statement<'a>, String> {
+        let t = self.tokens[0];
+        let s =  Ok(match t {
+            Token::Return => Statement::Return(self.expect(Token::Return)?.parse_expression(0)?),
+            Token::Semicolon => Statement::Null,
+            Token::If => return Ok(Statement::If(
+                self.expect(Token::If)?.expect(Token::OpenParenthesis)?.parse_expression(0)?,
+                Box::new(self.expect(Token::CloseParenthesis)?.parse_statement()?),
+                match self.tokens[0] {
+                    Token::Else => Some(Box::new(self.expect(Token::Else)?.parse_statement()?)),
+                    _ => None,
+                },
+            )),
+            _ => Statement::Expression(self.parse_expression(0)?),
+        });
+        self.expect(Token::Semicolon)?;
+        return s;
+    }
+
     pub fn parse_block_item(&mut self) -> Result<BlockItem<'a>, String> {
         let t = self.tokens[0];
-        let b = Ok(match t {
+        return Ok(match t {
             Token::Int => {
                 let n = self.expect(Token::Int)?.identifier()?;
                 if self.var_map.contains_key(n) {
@@ -294,27 +324,20 @@ impl<'a> TokenStream<'a> {
                 }
                 self.var_map.insert(n, self.varc);
                 self.varc += 1;
-                BlockItem::Decl(Declaration {
+                let d = BlockItem::Decl(Declaration {
                     name: n,
                     id: self.varc - 1,
                     init: match self.tokens[0] {
                         Token::Equal => Some(self.expect(Token::Equal)?.parse_expression(0)?),
                         Token::Semicolon => None,
-                        _ => {
-                            return Err(format!("Expected semicolon or initialiser, but found {:?}", t));
-                        }
+                        _ => return Err(format!("Expected semicolon or initialiser, but found {:?}", t)),
                     },
-                })
-            }
-            Token::Return => BlockItem::Stmt(Statement::Return(self.expect(Token::Return)?.parse_expression(0)?)),
-            Token::Semicolon => {
+                });
                 self.expect(Token::Semicolon)?;
-                return Ok(BlockItem::Stmt(Statement::Null));
+                d
             }
-            _ => BlockItem::Stmt(Statement::Expression(self.parse_expression(0)?)),
+            _ => BlockItem::Stmt(self.parse_statement()?),
         });
-        self.expect(Token::Semicolon)?;
-        return b;
     }
 
     pub fn parse_function(&mut self) -> Result<Function<'a>, String> {

@@ -10,6 +10,8 @@ pub enum Token<'a> {
     Int,    // int\b
     Void,   // void\b
     Return, // return\b
+    If,    // if\b
+    Else,    // else\b
 
     // MonoChar & DuoChar Tokens
     OpenParenthesis,         // \(
@@ -50,6 +52,8 @@ pub enum Token<'a> {
     BangEqual,               // !=
     LeftChevronEqual,        // <=
     RightChevronEqual,       // >=
+    QuestionMark,            // ?
+    Colon,                   // :
 
     // EOF
     EndOfFile,
@@ -67,6 +71,8 @@ pub fn lex<'a>(input: &'a str) -> Result<Vec<Token<'a>>, String> {
         (Token::Int, Regex::new(r"^int\b").unwrap()),
         (Token::Void, Regex::new(r"^void\b").unwrap()),
         (Token::Return, Regex::new(r"^return\b").unwrap()),
+        (Token::If, Regex::new(r"^if\b").unwrap()),
+        (Token::Else, Regex::new(r"^else\b").unwrap()),
     ];
     let tks = [
         (Token::OpenParenthesis, Regex::new(r"^\(").unwrap()),
@@ -107,6 +113,8 @@ pub fn lex<'a>(input: &'a str) -> Result<Vec<Token<'a>>, String> {
         (Token::BangEqual, Regex::new(r"^!=").unwrap()),
         (Token::LeftChevronEqual, Regex::new(r"^<=").unwrap()),
         (Token::RightChevronEqual, Regex::new(r"^>=").unwrap()),
+        (Token::QuestionMark, Regex::new(r"^\?").unwrap()),
+        (Token::Colon, Regex::new(r"^:").unwrap()),
     ];
 
     let unknown = Regex::new(r"^\S+?\b").unwrap();

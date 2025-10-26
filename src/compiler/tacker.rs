@@ -210,6 +210,22 @@ impl Tacker {
                 }
                 dst
             }
+            parser::Expression::Conditional(cond, then_e, else_e) => {
+                let cond = self.convert_expression(*cond, instructions);
+                let result = Val::Temp(self.tmpc);
+                self.tmpc += 1;
+                let e_label = self.lblc;
+                self.lblc += 2;
+                instructions.push(Instruction::JumpIfZero { cond, target: e_label });
+                let src = self.convert_expression(*then_e, instructions);
+                instructions.push(Instruction::Copy { src, dst: result });
+                instructions.push(Instruction::Jump { target: e_label + 1 });
+                instructions.push(Instruction::Label(e_label));
+                let src = self.convert_expression(*else_e, instructions);
+                instructions.push(Instruction::Copy { src, dst: result });
+                instructions.push(Instruction::Label(e_label + 1));
+                result
+            }
         }
     }
 
@@ -231,6 +247,25 @@ impl Tacker {
                 }
                 parser::Statement::Expression(e) => {
                     self.convert_expression(e, instructions);
+                }
+                parser::Statement::If(cond, then_s, Some(else_s)) => {
+                    let cond = self.convert_expression(cond, instructions);
+                    let e_label = self.lblc;
+                    self.lblc += 2;
+                    instructions.push(Instruction::JumpIfZero { cond, target: e_label });
+                    self.convert_block_item(parser::BlockItem::Stmt(*then_s), instructions);
+                    instructions.push(Instruction::Jump { target: e_label + 1 });
+                    instructions.push(Instruction::Label(e_label));
+                    self.convert_block_item(parser::BlockItem::Stmt(*else_s), instructions);
+                    instructions.push(Instruction::Label(e_label + 1));
+                }
+                parser::Statement::If(cond, then_s, None) => {
+                    let cond = self.convert_expression(cond, instructions);
+                    let e_label = self.lblc;
+                    self.lblc += 1;
+                    instructions.push(Instruction::JumpIfZero { cond, target: e_label });
+                    self.convert_block_item(parser::BlockItem::Stmt(*then_s), instructions);
+                    instructions.push(Instruction::Label(e_label));
                 }
                 parser::Statement::Null => (),
             },
