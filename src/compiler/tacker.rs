@@ -76,8 +76,8 @@ pub struct Function<'a> {
 pub struct Program<'a>(pub Function<'a>);
 
 pub struct Tacker {
-    pub tmpc: u32,
-    pub lblc: u32,
+    tmpc: u32,
+    lblc: u32,
 }
 
 pub fn convert_binop(op: parser::BinaryOp) -> BinaryOp {
@@ -103,6 +103,10 @@ pub fn convert_binop(op: parser::BinaryOp) -> BinaryOp {
 }
 
 impl Tacker {
+    pub fn new() -> Tacker {
+        return Tacker { tmpc: 1, lblc: 1 };
+    }
+
     pub fn convert_expression<'a>(&mut self, e: parser::Expression<'a>, instructions: &mut Vec<Instruction<'a>>) -> Val<'a> {
         match e {
             parser::Expression::Constant(i) => Val::Constant(i),
@@ -267,6 +271,11 @@ impl Tacker {
                     self.convert_block_item(parser::BlockItem::Stmt(*then_s), instructions);
                     instructions.push(Instruction::Label(e_label));
                 }
+                parser::Statement::Goto(_, id) => instructions.push(Instruction::Jump { target: id }),
+                parser::Statement::Label(_, id, s) => {
+                    instructions.push(Instruction::Label(id));
+                    self.convert_block_item(parser::BlockItem::Stmt(*s), instructions);
+                }
                 parser::Statement::Null => (),
             },
         }
@@ -287,7 +296,9 @@ impl Tacker {
         return Function { name, instructions };
     }
 
-    pub fn convert<'a>(&mut self, parser::Program(f): parser::Program<'a>) -> Program<'a> {
+    pub fn convert<'a>(&mut self, parser::Program(f, varc, lblc): parser::Program<'a>) -> Program<'a> {
+        self.tmpc = varc + 1;
+        self.lblc = lblc + 1;
         return Program(self.convert_function(f));
     }
 }

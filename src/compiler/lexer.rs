@@ -10,8 +10,9 @@ pub enum Token<'a> {
     Int,    // int\b
     Void,   // void\b
     Return, // return\b
-    If,    // if\b
-    Else,    // else\b
+    If,     // if\b
+    Else,   // else\b
+    Goto,   // goto\b
 
     // MonoChar & DuoChar Tokens
     OpenParenthesis,         // \(
@@ -73,6 +74,7 @@ pub fn lex<'a>(input: &'a str) -> Result<Vec<Token<'a>>, String> {
         (Token::Return, Regex::new(r"^return\b").unwrap()),
         (Token::If, Regex::new(r"^if\b").unwrap()),
         (Token::Else, Regex::new(r"^else\b").unwrap()),
+        (Token::Goto, Regex::new(r"^goto\b").unwrap()),
     ];
     let tks = [
         (Token::OpenParenthesis, Regex::new(r"^\(").unwrap()),

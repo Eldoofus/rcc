@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use crate::compiler::lexer::Token;
 
@@ -59,6 +59,8 @@ pub enum Statement<'a> {
     Return(Expression<'a>),
     Expression(Expression<'a>),
     If(Expression<'a>, Box<Statement<'a>>, Option<Box<Statement<'a>>>),
+    Goto(&'a str, u32),
+    Label(&'a str, u32, Box<Statement<'a>>),
     Null,
 }
 
@@ -75,12 +77,14 @@ pub struct Function<'a> {
 }
 
 #[derive(Debug)]
-pub struct Program<'a>(pub Function<'a>);
+pub struct Program<'a>(pub Function<'a>, pub u32, pub u32);
 
 pub struct TokenStream<'a> {
     pub tokens: &'a [Token<'a>],
-    pub varc: u32,
-    pub var_map: HashMap<&'a str, u32>,
+    var_map: HashMap<&'a str, u32>,
+    lbl_map: HashMap<&'a str, i32>,
+    fix_set: HashSet<&'a str>,
+    lblc: u32,
 }
 
 pub fn parse_unaryop(t: Token) -> Result<UnaryOp, String> {
@@ -201,6 +205,16 @@ pub fn precedence(op: BinaryOp) -> i32 {
 }
 
 impl<'a> TokenStream<'a> {
+    pub fn new(tokens: &'a [Token<'a>]) -> TokenStream<'a> {
+        return TokenStream {
+            tokens,
+            var_map: HashMap::new(),
+            lbl_map: HashMap::new(),
+            fix_set: HashSet::new(),
+            lblc: 0,
+        };
+    }
+
     pub fn take(&mut self) -> Token<'a> {
         let t = self.tokens[0];
         self.tokens = &self.tokens[1..];
@@ -297,17 +311,52 @@ impl<'a> TokenStream<'a> {
 
     pub fn parse_statement(&mut self) -> Result<Statement<'a>, String> {
         let t = self.tokens[0];
-        let s =  Ok(match t {
+        let s = Ok(match t {
             Token::Return => Statement::Return(self.expect(Token::Return)?.parse_expression(0)?),
             Token::Semicolon => Statement::Null,
-            Token::If => return Ok(Statement::If(
-                self.expect(Token::If)?.expect(Token::OpenParenthesis)?.parse_expression(0)?,
-                Box::new(self.expect(Token::CloseParenthesis)?.parse_statement()?),
-                match self.tokens[0] {
-                    Token::Else => Some(Box::new(self.expect(Token::Else)?.parse_statement()?)),
-                    _ => None,
-                },
-            )),
+            Token::If => {
+                return Ok(Statement::If(
+                    self.expect(Token::If)?.expect(Token::OpenParenthesis)?.parse_expression(0)?,
+                    Box::new(self.expect(Token::CloseParenthesis)?.parse_statement()?),
+                    match self.tokens[0] {
+                        Token::Else => Some(Box::new(self.expect(Token::Else)?.parse_statement()?)),
+                        _ => None,
+                    },
+                ));
+            }
+            Token::Goto => {
+                let l = self.expect(Token::Goto)?.identifier()?;
+                Statement::Goto(
+                    l,
+                    self.lbl_map
+                        .entry(l)
+                        .or_insert_with(|| {
+                            self.fix_set.insert(l);
+                            self.lblc += 1;
+                            -(self.lblc as i32)
+                        })
+                        .unsigned_abs(),
+                )
+            }
+            Token::Identifier(l) if self.tokens[1] == Token::Colon => {
+                self.tokens = &self.tokens[2..];
+                if let Some(1..) = self.lbl_map.get(l) {
+                    return Err(format!("Duplicate label '{}'", l));
+                }
+                self.fix_set.remove(l);
+                return Ok(Statement::Label(
+                    l,
+                    self.lbl_map
+                        .entry(l)
+                        .and_modify(|id| *id *= -1)
+                        .or_insert_with(|| {
+                            self.lblc += 1;
+                            self.lblc as i32
+                        })
+                        .unsigned_abs(),
+                    Box::new(self.parse_statement()?),
+                ));
+            }
             _ => Statement::Expression(self.parse_expression(0)?),
         });
         self.expect(Token::Semicolon)?;
@@ -322,11 +371,10 @@ impl<'a> TokenStream<'a> {
                 if self.var_map.contains_key(n) {
                     return Err(format!("Variable '{}' already declared", n));
                 }
-                self.var_map.insert(n, self.varc);
-                self.varc += 1;
+                self.var_map.insert(n, self.var_map.len() as u32 + 1);
                 let d = BlockItem::Decl(Declaration {
                     name: n,
-                    id: self.varc - 1,
+                    id: self.var_map.len() as u32,
                     init: match self.tokens[0] {
                         Token::Equal => Some(self.expect(Token::Equal)?.parse_expression(0)?),
                         Token::Semicolon => None,
@@ -353,12 +401,16 @@ impl<'a> TokenStream<'a> {
             t = self.tokens[0];
         }
         self.expect(Token::CloseBrace)?;
+        if !self.fix_set.is_empty() {
+            return Err(format!("Could not find label: '{}'", self.fix_set.iter().next().unwrap()));
+        }
+        self.lbl_map.clear();
         return Ok(Function { name: n, body });
     }
 
     pub fn parse(&mut self) -> Result<Program<'a>, String> {
         let func = self.parse_function()?;
         self.expect(Token::EndOfFile)?;
-        return Ok(Program(func));
+        return Ok(Program(func, self.var_map.len() as u32, self.lblc));
     }
 }
