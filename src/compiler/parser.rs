@@ -61,6 +61,7 @@ pub enum Statement<'a> {
     If(Expression<'a>, Box<Statement<'a>>, Option<Box<Statement<'a>>>),
     Goto(&'a str, u32),
     Label(&'a str, u32, Box<Statement<'a>>),
+    Compound(Block<'a>),
     Null,
 }
 
@@ -71,17 +72,27 @@ pub enum BlockItem<'a> {
 }
 
 #[derive(Debug)]
+pub struct Block<'a>(pub Vec<BlockItem<'a>>);
+
+#[derive(Debug)]
 pub struct Function<'a> {
     pub name: &'a str,
-    pub body: Vec<BlockItem<'a>>,
+    pub body: Block<'a>,
 }
 
 #[derive(Debug)]
 pub struct Program<'a>(pub Function<'a>, pub u32, pub u32);
 
+#[derive(Debug)]
+pub struct SymbolTable<'a> {
+    pub tables: Vec<HashMap<&'a str, u32>>,
+    pub count: u32,
+}
+
+#[derive(Debug)]
 pub struct TokenStream<'a> {
     pub tokens: &'a [Token<'a>],
-    var_map: HashMap<&'a str, u32>,
+    var_map: SymbolTable<'a>,
     lbl_map: HashMap<&'a str, i32>,
     fix_set: HashSet<&'a str>,
     lblc: u32,
@@ -204,11 +215,42 @@ pub fn precedence(op: BinaryOp) -> i32 {
     };
 }
 
+impl<'a> SymbolTable<'a> {
+    pub fn new() -> SymbolTable<'a> {
+        return SymbolTable {
+            tables: vec![HashMap::new()],
+            count: 0,
+        }
+    }
+
+    pub fn enter_scope(&mut self) {
+        self.tables.push(HashMap::new());
+    }
+
+    pub fn exit_scope(&mut self) {
+        self.tables.pop();
+        self.tables.last().expect("Cannot exit top-level scope");
+    }
+
+    pub fn find(&self, k: &str) -> Option<&u32> {
+        return self.tables.iter().rev().find_map(|table| table.get(k));
+    }
+    
+    pub fn contains(&self, k: &str) -> bool {
+        return self.tables.last().unwrap().contains_key(k);
+    }
+
+    pub fn insert(&mut self, k: &'a str) {
+        self.count += 1;
+        self.tables.last_mut().unwrap().insert(k, self.count);
+    }
+}
+
 impl<'a> TokenStream<'a> {
     pub fn new(tokens: &'a [Token<'a>]) -> TokenStream<'a> {
         return TokenStream {
             tokens,
-            var_map: HashMap::new(),
+            var_map: SymbolTable::new(),
             lbl_map: HashMap::new(),
             fix_set: HashSet::new(),
             lblc: 0,
@@ -243,7 +285,7 @@ impl<'a> TokenStream<'a> {
         let t = self.take();
         let f = match t {
             Token::Constant(c) => Expression::Constant(c),
-            Token::Identifier(n) => match self.var_map.get(n) {
+            Token::Identifier(n) => match self.var_map.find(n) {
                 Some(&id) => Expression::Var(n, id),
                 None => return Err(format!("Use of undeclared identifier '{}'", n)),
             },
@@ -357,6 +399,18 @@ impl<'a> TokenStream<'a> {
                     Box::new(self.parse_statement()?),
                 ));
             }
+            Token::OpenBrace => {
+                self.var_map.enter_scope();
+                let mut body: Vec<BlockItem> = Vec::new();
+                let mut t = self.expect(Token::OpenBrace)?.tokens[0];
+                while t != Token::CloseBrace {
+                    body.push(self.parse_block_item()?);
+                    t = self.tokens[0];
+                }
+                self.expect(Token::CloseBrace)?;
+                self.var_map.exit_scope();
+                return Ok(Statement::Compound(Block(body)));
+            }
             _ => Statement::Expression(self.parse_expression(0)?),
         });
         self.expect(Token::Semicolon)?;
@@ -368,13 +422,13 @@ impl<'a> TokenStream<'a> {
         return Ok(match t {
             Token::Int => {
                 let n = self.expect(Token::Int)?.identifier()?;
-                if self.var_map.contains_key(n) {
+                if self.var_map.contains(n) {
                     return Err(format!("Variable '{}' already declared", n));
                 }
-                self.var_map.insert(n, self.var_map.len() as u32 + 1);
+                self.var_map.insert(n);
                 let d = BlockItem::Decl(Declaration {
                     name: n,
-                    id: self.var_map.len() as u32,
+                    id: self.var_map.count,
                     init: match self.tokens[0] {
                         Token::Equal => Some(self.expect(Token::Equal)?.parse_expression(0)?),
                         Token::Semicolon => None,
@@ -405,12 +459,12 @@ impl<'a> TokenStream<'a> {
             return Err(format!("Could not find label: '{}'", self.fix_set.iter().next().unwrap()));
         }
         self.lbl_map.clear();
-        return Ok(Function { name: n, body });
+        return Ok(Function { name: n, body: Block(body) });
     }
 
     pub fn parse(&mut self) -> Result<Program<'a>, String> {
         let func = self.parse_function()?;
         self.expect(Token::EndOfFile)?;
-        return Ok(Program(func, self.var_map.len() as u32, self.lblc));
+        return Ok(Program(func, self.var_map.count, self.lblc));
     }
 }

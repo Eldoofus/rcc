@@ -1,4 +1,4 @@
-use crate::compiler::parser;
+use crate::compiler::parser::{self, Block};
 
 #[derive(Debug, Clone, Copy)]
 pub enum UnaryOp {
@@ -276,6 +276,11 @@ impl Tacker {
                     instructions.push(Instruction::Label(id));
                     self.convert_block_item(parser::BlockItem::Stmt(*s), instructions);
                 }
+                parser::Statement::Compound(Block(body)) => {
+                    for b in body {
+                        self.convert_block_item(b, instructions);
+                    }
+                }
                 parser::Statement::Null => (),
             },
         }
@@ -284,7 +289,7 @@ impl Tacker {
     pub fn convert_function<'a>(&mut self, f: parser::Function<'a>) -> Function<'a> {
         let mut instructions: Vec<Instruction> = Vec::new();
         let parser::Function { name, body } = f;
-        for b in body {
+        for b in body.0 {
             self.convert_block_item(b, &mut instructions);
         }
         if name == "main" {
