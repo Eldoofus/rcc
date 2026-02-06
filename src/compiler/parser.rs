@@ -68,11 +68,11 @@ pub enum Statement<'a> {
     Goto(&'a str, u32),
     Label(&'a str, u32, Box<Statement<'a>>),
     Compound(Block<'a>),
-    // Break,
-    // Continue,
-    // While(Expression<'a>, Box<Statement<'a>>),
-    // DoWhile(Box<Statement<'a>>, Expression<'a>),
-    // For(ForInit<'a>, Option<Expression<'a>>, Option<Expression<'a>>, Box<Statement<'a>>),
+    Break(u32),
+    Continue(u32),
+    While(Expression<'a>, Box<Statement<'a>>, u32),
+    DoWhile(Box<Statement<'a>>, Expression<'a>, u32),
+    For(ForInit<'a>, Option<Expression<'a>>, Option<Expression<'a>>, Box<Statement<'a>>, u32),
     Null,
 }
 
@@ -106,6 +106,7 @@ pub struct TokenStream<'a> {
     var_map: SymbolTable<'a>,
     lbl_map: HashMap<&'a str, i32>,
     fix_map: HashMap<&'a str, (usize, usize)>,
+    loopstk: Vec<u32>,
     lblc: u32,
 }
 
@@ -264,6 +265,7 @@ impl<'a> TokenStream<'a> {
             var_map: SymbolTable::new(),
             lbl_map: HashMap::new(),
             fix_map: HashMap::new(),
+            loopstk: Vec::new(),
             lblc: 0,
         };
     }
@@ -367,8 +369,25 @@ impl<'a> TokenStream<'a> {
         return Ok(left);
     }
 
+    pub fn parse_declaration(&mut self) -> Result<Declaration<'a>, String> {
+        let (n, line, col) = self.expect(Token::Int)?.identifier()?;
+        if self.var_map.contains(n) {
+            return Err(format!("file.c:{}:{}: Variable '{}' already declared", line, col, n));
+        }
+        self.var_map.insert(n);
+        return Ok(Declaration {
+            name: n,
+            id: self.var_map.count,
+            init: match self.tokens[0] {
+                (Token::Equal, _, _) => Some(self.expect(Token::Equal)?.parse_expression(0)?),
+                (Token::Semicolon, _, _) => None,
+                (t, line, col) => return Err(format!("file.c:{}:{}: Expected semicolon or initialiser, but found {:?}", line, col, t)),
+            },
+        });
+    }
+
     pub fn parse_statement(&mut self) -> Result<Statement<'a>, String> {
-        let t = self.tokens[0].0;
+        let (t, line, col) = self.tokens[0];
         let s = Ok(match t {
             Token::Return => Statement::Return(self.expect(Token::Return)?.parse_expression(0)?),
             Token::Semicolon => Statement::Null,
@@ -427,6 +446,52 @@ impl<'a> TokenStream<'a> {
                 self.var_map.exit_scope();
                 return Ok(Statement::Compound(Block(body)));
             }
+            Token::Break => match self.expect(Token::Break)?.loopstk.last() {
+                Some(&id) => Statement::Break(id),
+                None => return Err(format!("file.c:{}:{}: Found break statement outside loop", line, col)),
+            },
+            Token::Continue => match self.expect(Token::Continue)?.loopstk.last() {
+                Some(&id) => Statement::Continue(id),
+                None => return Err(format!("file.c:{}:{}: Found continue statement outside loop", line, col)),
+            },
+            Token::While => {
+                let cond = self.expect(Token::While)?.expect(Token::OpenParenthesis)?.parse_expression(0)?;
+                self.expect(Token::CloseParenthesis)?.lblc += 2;
+                self.loopstk.push(self.lblc);
+                let stmt = Box::new(self.parse_statement()?);
+                return Ok(Statement::While(cond, stmt, self.loopstk.pop().unwrap()));
+            }
+            Token::Do => {
+                self.expect(Token::Do)?.lblc += 3;
+                self.loopstk.push(self.lblc);
+                let stmt = Box::new(self.parse_statement()?);
+                Statement::DoWhile(
+                    stmt,
+                    self.expect(Token::While)?.expect(Token::OpenParenthesis)?.parse_expression(0)?,
+                    self.expect(Token::CloseParenthesis)?.loopstk.pop().unwrap(),
+                )
+            }
+            Token::For => {
+                self.expect(Token::For)?.expect(Token::OpenParenthesis)?.var_map.enter_scope();
+                let init = match self.tokens[0].0 {
+                    Token::Int => ForInit::InitDecl(self.parse_declaration()?),
+                    Token::Semicolon => ForInit::InitExp(None),
+                    _ => ForInit::InitExp(Some(self.parse_expression(0)?)),
+                };
+                let cond = match self.expect(Token::Semicolon)?.tokens[0].0 {
+                    Token::Semicolon => None,
+                    _ => Some(self.parse_expression(0)?),
+                };
+                let post = match self.expect(Token::Semicolon)?.tokens[0].0 {
+                    Token::CloseParenthesis => None,
+                    _ => Some(self.parse_expression(0)?),
+                };
+                self.expect(Token::CloseParenthesis)?.lblc += 3;
+                self.loopstk.push(self.lblc);
+                let stmt = Box::new(self.parse_statement()?);
+                self.var_map.exit_scope();
+                return Ok(Statement::For(init, cond, post, stmt, self.loopstk.pop().unwrap()));
+            }
             _ => Statement::Expression(self.parse_expression(0)?),
         });
         self.expect(Token::Semicolon)?;
@@ -434,25 +499,11 @@ impl<'a> TokenStream<'a> {
     }
 
     pub fn parse_block_item(&mut self) -> Result<BlockItem<'a>, String> {
-        let t = self.tokens[0].0;
-        return Ok(match t {
+        return Ok(match self.tokens[0].0 {
             Token::Int => {
-                let (n, line, col) = self.expect(Token::Int)?.identifier()?;
-                if self.var_map.contains(n) {
-                    return Err(format!("file.c:{}:{}: Variable '{}' already declared", line, col, n));
-                }
-                self.var_map.insert(n);
-                let d = BlockItem::Decl(Declaration {
-                    name: n,
-                    id: self.var_map.count,
-                    init: match self.tokens[0] {
-                        (Token::Equal, _, _) => Some(self.expect(Token::Equal)?.parse_expression(0)?),
-                        (Token::Semicolon, _, _) => None,
-                        (_, line, col) => return Err(format!("file.c:{}:{}: Expected semicolon or initialiser, but found {:?}", line, col, t)),
-                    },
-                });
+                let decl = BlockItem::Decl(self.parse_declaration()?);
                 self.expect(Token::Semicolon)?;
-                d
+                decl
             }
             _ => BlockItem::Stmt(self.parse_statement()?),
         });

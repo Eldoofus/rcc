@@ -233,56 +233,95 @@ impl Tacker {
         }
     }
 
-    pub fn convert_block_item<'a>(&mut self, b: parser::BlockItem<'a>, instructions: &mut Vec<Instruction<'a>>) {
-        match b {
-            parser::BlockItem::Decl(parser::Declaration { name, id, init }) => {
-                if let Some(init) = init {
-                    let src = self.convert_expression(init, instructions);
-                    instructions.push(Instruction::Copy {
-                        src,
-                        dst: Val::Local(name, id),
-                    });
-                }
+    pub fn convert_declaration<'a>(&mut self, d: parser::Declaration<'a>, instructions: &mut Vec<Instruction<'a>>) {
+        if let Some(init) = d.init {
+            let src = self.convert_expression(init, instructions);
+            instructions.push(Instruction::Copy {
+                src,
+                dst: Val::Local(d.name, d.id),
+            });
+        }
+    }
+
+    pub fn convert_statement<'a>(&mut self, s: parser::Statement<'a>, instructions: &mut Vec<Instruction<'a>>) {
+        match s {
+            parser::Statement::Return(e) => {
+                let r = self.convert_expression(e, instructions);
+                instructions.push(Instruction::Return(r));
             }
-            parser::BlockItem::Stmt(s) => match s {
-                parser::Statement::Return(e) => {
-                    let r = self.convert_expression(e, instructions);
-                    instructions.push(Instruction::Return(r));
-                }
-                parser::Statement::Expression(e) => {
-                    self.convert_expression(e, instructions);
-                }
-                parser::Statement::If(cond, then_s, Some(else_s)) => {
-                    let cond = self.convert_expression(cond, instructions);
-                    let e_label = self.lblc;
-                    self.lblc += 2;
-                    instructions.push(Instruction::JumpIfZero { cond, target: e_label });
-                    self.convert_block_item(parser::BlockItem::Stmt(*then_s), instructions);
-                    instructions.push(Instruction::Jump { target: e_label + 1 });
-                    instructions.push(Instruction::Label(e_label));
-                    self.convert_block_item(parser::BlockItem::Stmt(*else_s), instructions);
-                    instructions.push(Instruction::Label(e_label + 1));
-                }
-                parser::Statement::If(cond, then_s, None) => {
-                    let cond = self.convert_expression(cond, instructions);
-                    let e_label = self.lblc;
-                    self.lblc += 1;
-                    instructions.push(Instruction::JumpIfZero { cond, target: e_label });
-                    self.convert_block_item(parser::BlockItem::Stmt(*then_s), instructions);
-                    instructions.push(Instruction::Label(e_label));
-                }
-                parser::Statement::Goto(_, id) => instructions.push(Instruction::Jump { target: id }),
-                parser::Statement::Label(_, id, s) => {
-                    instructions.push(Instruction::Label(id));
-                    self.convert_block_item(parser::BlockItem::Stmt(*s), instructions);
-                }
-                parser::Statement::Compound(Block(body)) => {
-                    for b in body {
-                        self.convert_block_item(b, instructions);
+            parser::Statement::Expression(e) => {
+                self.convert_expression(e, instructions);
+            }
+            parser::Statement::If(cond, then_s, Some(else_s)) => {
+                let cond = self.convert_expression(cond, instructions);
+                let e_label = self.lblc;
+                self.lblc += 2;
+                instructions.push(Instruction::JumpIfZero { cond, target: e_label });
+                self.convert_statement(*then_s, instructions);
+                instructions.push(Instruction::Jump { target: e_label + 1 });
+                instructions.push(Instruction::Label(e_label));
+                self.convert_statement(*else_s, instructions);
+                instructions.push(Instruction::Label(e_label + 1));
+            }
+            parser::Statement::If(cond, then_s, None) => {
+                let cond = self.convert_expression(cond, instructions);
+                let e_label = self.lblc;
+                self.lblc += 1;
+                instructions.push(Instruction::JumpIfZero { cond, target: e_label });
+                self.convert_statement(*then_s, instructions);
+                instructions.push(Instruction::Label(e_label));
+            }
+            parser::Statement::Goto(_, id) => instructions.push(Instruction::Jump { target: id }),
+            parser::Statement::Label(_, id, s) => {
+                instructions.push(Instruction::Label(id));
+                self.convert_statement(*s, instructions);
+            }
+            parser::Statement::Compound(Block(body)) => {
+                for b in body {
+                    match b {
+                        parser::BlockItem::Decl(d) => self.convert_declaration(d, instructions),
+                        parser::BlockItem::Stmt(s) => self.convert_statement(s, instructions),
                     }
                 }
-                parser::Statement::Null => (),
-            },
+            }
+            parser::Statement::Break(id) => instructions.push(Instruction::Jump { target: id }),
+            parser::Statement::Continue(id) => instructions.push(Instruction::Jump { target: id - 1 }),
+            parser::Statement::While(cond, stmt, id) => {
+                instructions.push(Instruction::Label(id - 1));
+                let cond = self.convert_expression(cond, instructions);
+                instructions.push(Instruction::JumpIfZero { cond, target: id });
+                self.convert_statement(*stmt, instructions);
+                instructions.push(Instruction::Jump { target: id - 1 });
+                instructions.push(Instruction::Label(id));
+            }
+            parser::Statement::DoWhile(stmt, cond, id) => {
+                instructions.push(Instruction::Label(id - 2));
+                self.convert_statement(*stmt, instructions);
+                instructions.push(Instruction::Label(id - 1));
+                let cond = self.convert_expression(cond, instructions);
+                instructions.push(Instruction::JumpIfNotZero { cond, target: id - 2 });
+                instructions.push(Instruction::Label(id));
+            }
+            parser::Statement::For(init, cond, post, stmt, id) => {
+                if let parser::ForInit::InitDecl(d) = init {
+                    self.convert_declaration(d, instructions);
+                } else if let parser::ForInit::InitExp(Some(e)) = init {
+                    self.convert_expression(e, instructions);
+                }
+                instructions.push(Instruction::Label(id - 2));
+                if let Some(cond) = cond {
+                    let cond = self.convert_expression(cond, instructions);
+                    instructions.push(Instruction::JumpIfZero { cond, target: id });
+                }
+                self.convert_statement(*stmt, instructions);
+                instructions.push(Instruction::Label(id - 1));
+                if let Some(post) = post {
+                    self.convert_expression(post, instructions);
+                }
+                instructions.push(Instruction::Jump { target: id - 2 });
+                instructions.push(Instruction::Label(id));
+            }
+            parser::Statement::Null => (),
         }
     }
 
@@ -290,7 +329,10 @@ impl Tacker {
         let mut instructions: Vec<Instruction> = Vec::new();
         let parser::Function { name, body } = f;
         for b in body.0 {
-            self.convert_block_item(b, &mut instructions);
+            match b {
+                parser::BlockItem::Decl(d) => self.convert_declaration(d, &mut instructions),
+                parser::BlockItem::Stmt(s) => self.convert_statement(s, &mut instructions),
+            }
         }
         if name == "main" {
             match instructions.last() {
