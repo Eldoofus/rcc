@@ -90,7 +90,7 @@ fn ctest() -> Result<(), String> {
 }
 
 pub fn compile(file: &str) -> String {
-    let tokens: &[lexer::Token] = &lexer::lex(file).unwrap();
+    let tokens: &[(lexer::Token, usize, usize)] = &lexer::lex(file).unwrap();
     let mut tkstream = parser::TokenStream::new(tokens);
 
     // println!("{}", file);
@@ -113,7 +113,7 @@ pub fn compile(file: &str) -> String {
 }
 
 pub fn compile_dbg(file: &str) -> String {
-    let tokens: &[lexer::Token] = &lexer::lex(file).unwrap();
+    let tokens: &[(lexer::Token, usize, usize)] = &lexer::lex(file).unwrap();
     let mut tkstream = parser::TokenStream::new(tokens);
 
     println!("{}", file);

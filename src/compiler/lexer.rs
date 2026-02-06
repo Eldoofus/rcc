@@ -7,12 +7,17 @@ pub enum Token<'a> {
     Identifier(&'a str), // [a-zA-Z_]\w*\b
 
     // Keywords
-    Int,    // int\b
-    Void,   // void\b
-    Return, // return\b
-    If,     // if\b
-    Else,   // else\b
-    Goto,   // goto\b
+    Int,      // int\b
+    Void,     // void\b
+    Return,   // return\b
+    If,       // if\b
+    Else,     // else\b
+    Goto,     // goto\b
+    Do,       // do\b
+    While,    // while\b
+    For,      // for\b
+    Break,    // break\b
+    Continue, // continue\b
 
     // MonoChar & DuoChar Tokens
     OpenParenthesis,         // \(
@@ -63,7 +68,23 @@ pub enum Token<'a> {
     Unknown(&'a str),
 }
 
-pub fn lex<'a>(input: &'a str) -> Result<Vec<Token<'a>>, String> {
+pub fn trim<'a>(mut s: &'a str, line: &mut usize, col: &mut usize) -> &'a str {
+    while let Some(c) = s.get(0..1) {
+        match c {
+            " " => *col += 1,
+            "\t" => *col += 8 - *col % 8,
+            "\n" => {
+                *line += 1;
+                *col = 0
+            }
+            _ => return s,
+        }
+        s = &s[1..];
+    }
+    return s;
+}
+
+pub fn lex<'a>(input: &'a str) -> Result<Vec<(Token<'a>, usize, usize)>, String> {
     let lts = [
         (Token::Constant(0), Regex::new(r"^[0-9]+\b").unwrap()),
         (Token::Identifier(""), Regex::new(r"^[a-zA-Z_]\w*\b").unwrap()),
@@ -75,6 +96,11 @@ pub fn lex<'a>(input: &'a str) -> Result<Vec<Token<'a>>, String> {
         (Token::If, Regex::new(r"^if\b").unwrap()),
         (Token::Else, Regex::new(r"^else\b").unwrap()),
         (Token::Goto, Regex::new(r"^goto\b").unwrap()),
+        (Token::Do, Regex::new(r"^do\b").unwrap()),
+        (Token::While, Regex::new(r"^while\b").unwrap()),
+        (Token::For, Regex::new(r"^for\b").unwrap()),
+        (Token::Break, Regex::new(r"^break\b").unwrap()),
+        (Token::Continue, Regex::new(r"^continue\b").unwrap()),
     ];
     let tks = [
         (Token::OpenParenthesis, Regex::new(r"^\(").unwrap()),
@@ -121,8 +147,10 @@ pub fn lex<'a>(input: &'a str) -> Result<Vec<Token<'a>>, String> {
 
     let unknown = Regex::new(r"^\S+?\b").unwrap();
 
-    let mut tokens: Vec<Token> = Vec::new();
-    let mut input = input.trim();
+    let mut tokens: Vec<(Token, usize, usize)> = Vec::new();
+    let mut line = 0;
+    let mut col = 0;
+    let mut input = trim(input, &mut line, &mut col);
 
     while !input.is_empty() {
         let mut token: Token = Token::Semicolon;
@@ -155,13 +183,15 @@ pub fn lex<'a>(input: &'a str) -> Result<Vec<Token<'a>>, String> {
 
         if maxlen == 0 {
             let tok = unknown.find(input).map(|x| x.as_str()).unwrap_or(input);
-            return Err(format!("Syntax error: unrecognised token '{}' encountered", tok));
+            return Err(format!("file.c:{}:{}: Syntax error: unrecognised token '{}' encountered", line, col, tok));
         }
 
-        tokens.push(token);
-        input = input[maxlen..].trim()
+        tokens.push((token, line, col));
+        col += maxlen;
+        input = trim(&input[maxlen..], &mut line, &mut col);
     }
 
-    tokens.push(Token::EndOfFile);
+    trim(input, &mut line, &mut col);
+    tokens.push((Token::EndOfFile, line, col));
     return Ok(tokens);
 }
