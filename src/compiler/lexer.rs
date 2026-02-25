@@ -18,6 +18,9 @@ pub enum Token<'a> {
     For,      // for\b
     Break,    // break\b
     Continue, // continue\b
+    Switch,   // switch\b
+    Case,     // case\b
+    Default,  // default\b
 
     // MonoChar & DuoChar Tokens
     OpenParenthesis,         // \(
@@ -72,10 +75,10 @@ pub fn trim<'a>(mut s: &'a str, line: &mut usize, col: &mut usize) -> &'a str {
     while let Some(c) = s.get(0..1) {
         match c {
             " " => *col += 1,
-            "\t" => *col += 8 - *col % 8,
+            "\t" => *col += 9 - *col % 8,
             "\n" => {
                 *line += 1;
-                *col = 0
+                *col = 1
             }
             _ => return s,
         }
@@ -101,6 +104,9 @@ pub fn lex<'a>(input: &'a str) -> Result<Vec<(Token<'a>, usize, usize)>, String>
         (Token::For, Regex::new(r"^for\b").unwrap()),
         (Token::Break, Regex::new(r"^break\b").unwrap()),
         (Token::Continue, Regex::new(r"^continue\b").unwrap()),
+        (Token::Switch, Regex::new(r"^switch\b").unwrap()),
+        (Token::Case, Regex::new(r"^case\b").unwrap()),
+        (Token::Default, Regex::new(r"^default\b").unwrap()),
     ];
     let tks = [
         (Token::OpenParenthesis, Regex::new(r"^\(").unwrap()),
@@ -148,8 +154,8 @@ pub fn lex<'a>(input: &'a str) -> Result<Vec<(Token<'a>, usize, usize)>, String>
     let unknown = Regex::new(r"^\S+?\b").unwrap();
 
     let mut tokens: Vec<(Token, usize, usize)> = Vec::new();
-    let mut line = 0;
-    let mut col = 0;
+    let mut line = 1;
+    let mut col = 1;
     let mut input = trim(input, &mut line, &mut col);
 
     while !input.is_empty() {

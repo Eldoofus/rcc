@@ -321,6 +321,36 @@ impl Tacker {
                 instructions.push(Instruction::Jump { target: id - 2 });
                 instructions.push(Instruction::Label(id));
             }
+            parser::Statement::Switch(e, stmt, cases, default, id) => {
+                let e = self.convert_expression(e, instructions);
+                let tmp = Val::Temp(self.tmpc);
+                self.tmpc += 1;
+                for (case, label) in cases {
+                    instructions.push(Instruction::Binary {
+                        op: BinaryOp::Equal,
+                        src1: e,
+                        src2: Val::Constant(case),
+                        dst: tmp,
+                    });
+                    instructions.push(Instruction::JumpIfNotZero { cond: tmp, target: label });
+                }
+                instructions.push(Instruction::Jump {
+                    target: match default {
+                        Some(label) => label,
+                        None => id,
+                    },
+                });
+                self.convert_statement(*stmt, instructions);
+                instructions.push(Instruction::Label(id));
+            }
+            parser::Statement::Case(_, id, stmt) => {
+                instructions.push(Instruction::Label(id));
+                self.convert_statement(*stmt, instructions);
+            }
+            parser::Statement::Default(id, stmt) => {
+                instructions.push(Instruction::Label(id));
+                self.convert_statement(*stmt, instructions);
+            }
             parser::Statement::Null => (),
         }
     }

@@ -73,6 +73,9 @@ pub enum Statement<'a> {
     While(Expression<'a>, Box<Statement<'a>>, u32),
     DoWhile(Box<Statement<'a>>, Expression<'a>, u32),
     For(ForInit<'a>, Option<Expression<'a>>, Option<Expression<'a>>, Box<Statement<'a>>, u32),
+    Switch(Expression<'a>, Box<Statement<'a>>, HashMap<i64, u32>, Option<u32>, u32),
+    Case(i64, u32, Box<Statement<'a>>),
+    Default(u32, Box<Statement<'a>>),
     Null,
 }
 
@@ -107,6 +110,7 @@ pub struct TokenStream<'a> {
     lbl_map: HashMap<&'a str, i32>,
     fix_map: HashMap<&'a str, (usize, usize)>,
     loopstk: Vec<u32>,
+    switchstk: Vec<(u32, HashMap<i64, u32>, Option<u32>)>,
     lblc: u32,
 }
 
@@ -266,6 +270,7 @@ impl<'a> TokenStream<'a> {
             lbl_map: HashMap::new(),
             fix_map: HashMap::new(),
             loopstk: Vec::new(),
+            switchstk: Vec::new(),
             lblc: 0,
         };
     }
@@ -446,10 +451,15 @@ impl<'a> TokenStream<'a> {
                 self.var_map.exit_scope();
                 return Ok(Statement::Compound(Block(body)));
             }
-            Token::Break => match self.expect(Token::Break)?.loopstk.last() {
-                Some(&id) => Statement::Break(id),
-                None => return Err(format!("file.c:{}:{}: Found break statement outside loop", line, col)),
-            },
+            Token::Break => {
+                self.expect(Token::Break)?;
+                match (self.loopstk.last(), self.switchstk.last()) {
+                    (Some(&lp), Some(&(sw, _, _))) => Statement::Break(std::cmp::max(lp, sw)),
+                    (Some(&id), _) => Statement::Break(id),
+                    (_, Some(&(id, _, _))) => Statement::Break(id),
+                    _ => return Err(format!("file.c:{}:{}: Found break statement outside loop or switch", line, col)),
+                }
+            }
             Token::Continue => match self.expect(Token::Continue)?.loopstk.last() {
                 Some(&id) => Statement::Continue(id),
                 None => return Err(format!("file.c:{}:{}: Found continue statement outside loop", line, col)),
@@ -491,6 +501,47 @@ impl<'a> TokenStream<'a> {
                 let stmt = Box::new(self.parse_statement()?);
                 self.var_map.exit_scope();
                 return Ok(Statement::For(init, cond, post, stmt, self.loopstk.pop().unwrap()));
+            }
+            Token::Switch => {
+                let e = self.expect(Token::Switch)?.expect(Token::OpenParenthesis)?.parse_expression(0)?;
+                self.expect(Token::CloseParenthesis)?.lblc += 1;
+                self.switchstk.push((self.lblc, HashMap::new(), None));
+                let s = self.parse_statement()?;
+                let (l, c, d) = self.switchstk.pop().unwrap();
+                return Ok(Statement::Switch(e, Box::new(s), c, d, l));
+            }
+            Token::Case => {
+                self.expect(Token::Case)?;
+                match self.switchstk.last() {
+                    Some(_) => {
+                        let (t, line, col) = self.take();
+                        let Token::Constant(l) = t else {
+                            return Err(format!("file.c:{}:{}: Case label must be literal expression", line, col));
+                        };
+                        self.expect(Token::Colon)?.lblc += 1;
+                        let cases = &mut self.switchstk.last_mut().unwrap().1;
+                        if cases.contains_key(&l) {
+                            return Err(format!("file.c:{}:{}: Duplicate case label found", line, col));
+                        }
+                        cases.insert(l, self.lblc);
+                        return Ok(Statement::Case(l, self.lblc, Box::new(self.parse_statement()?)));
+                    }
+                    None => return Err(format!("file.c:{}:{}: Found case statement outside switch", line, col)),
+                }
+            }
+            Token::Default => {
+                self.expect(Token::Default)?.expect(Token::Colon)?;
+                match self.switchstk.last_mut() {
+                    Some((_, _, default)) => {
+                        self.lblc += 1;
+                        if let Some(_) = default {
+                            return Err(format!("file.c:{}:{}: Duplicate default label found", line, col));
+                        }
+                        *default = Some(self.lblc);
+                        return Ok(Statement::Default(self.lblc, Box::new(self.parse_statement()?)));
+                    }
+                    None => return Err(format!("file.c:{}:{}: Found default statement outside switch", line, col)),
+                }
             }
             _ => Statement::Expression(self.parse_expression(0)?),
         });
